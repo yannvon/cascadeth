@@ -58,6 +58,10 @@ var (
 		accounts.MimetypeClique,
 		0x02,
 	}
+	ApplicationCascade = SigFormat{
+		accounts.MimetypeCascade,
+		0x02,
+	}
 	TextPlain = SigFormat{
 		accounts.MimetypeTextPlain,
 		0x45,
@@ -223,6 +227,42 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		}
 		req = &SignDataRequest{ContentType: mediaType, Rawdata: []byte(msg), Messages: messages, Hash: sighash}
 	case ApplicationClique.Mime:
+		// Clique is the Ethereum PoA standard
+		stringData, ok := data.(string)
+		if !ok {
+			return nil, useEthereumV, fmt.Errorf("input for %v must be an hex-encoded string", ApplicationClique.Mime)
+		}
+		cliqueData, err := hexutil.Decode(stringData)
+		if err != nil {
+			return nil, useEthereumV, err
+		}
+		header := &types.Header{}
+		if err := rlp.DecodeBytes(cliqueData, header); err != nil {
+			return nil, useEthereumV, err
+		}
+		// The incoming clique header is already truncated, sent to us with a extradata already shortened
+		if len(header.Extra) < 65 {
+			// Need to add it back, to get a suitable length for hashing
+			newExtra := make([]byte, len(header.Extra)+65)
+			copy(newExtra, header.Extra)
+			header.Extra = newExtra
+		}
+		// Get back the rlp data, encoded by us
+		sighash, cliqueRlp, err := cliqueHeaderHashAndRlp(header)
+		if err != nil {
+			return nil, useEthereumV, err
+		}
+		messages := []*NameValueType{
+			{
+				Name:  "Clique header",
+				Typ:   "clique",
+				Value: fmt.Sprintf("clique header %d [0x%x]", header.Number, header.Hash()),
+			},
+		}
+		// Clique uses V on the form 0 or 1
+		useEthereumV = false
+		req = &SignDataRequest{ContentType: mediaType, Rawdata: cliqueRlp, Messages: messages, Hash: sighash}
+	case ApplicationCascade.Mime:
 		// Clique is the Ethereum PoA standard
 		stringData, ok := data.(string)
 		if !ok {
