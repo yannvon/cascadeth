@@ -242,6 +242,8 @@ func (c *Clique) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*typ
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
 // a batch of new headers.
+//
+// Cascadeth:
 func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	if header.Number == nil {
 		return errUnknownBlock
@@ -253,11 +255,13 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 		return consensus.ErrFutureBlock
 	}
 	// Checkpoint blocks need to enforce zero beneficiary
+	// Cascadeth: Checkpoints will be handled differently in the future
 	checkpoint := (number % c.config.Epoch) == 0
 	if checkpoint && header.Coinbase != (common.Address{}) {
 		return errInvalidCheckpointBeneficiary
 	}
 	// Nonces must be 0x00..0 or 0xff..f, zeroes enforced on checkpoints
+	// Cascadeth: Nonce not used yet
 	if !bytes.Equal(header.Nonce[:], nonceAuthVote) && !bytes.Equal(header.Nonce[:], nonceDropVote) {
 		return errInvalidVote
 	}
@@ -289,7 +293,7 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 	}
 	// Ensure that the block's difficulty is meaningful (may not be correct at this point)
 	if number > 0 {
-		if header.Difficulty == nil || (header.Difficulty.Cmp(diffInTurn) != 0 && header.Difficulty.Cmp(diffNoTurn) != 0) {
+		if header.Difficulty == nil || (header.Difficulty.Cmp(diffInTurn) != 0 && header.Difficulty.Cmp(diffNoTurn) != 0) { // FIXME Cascadeth only had diffInTurn difficulty.
 			return errInvalidDifficulty
 		}
 	}
@@ -305,6 +309,10 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
+//
+// Cascadeth: parent hash and number refers to ordering on chain, difficulty and uncle Hash aren't used in Clique/Cascadeth
+// and are thus repurposed. Difficulty is the local number of a block (number of block produced by validator) and
+// uncleHash contains the local parentHash.
 func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
@@ -312,18 +320,23 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 		return nil
 	}
 	// Ensure that the block's timestamp isn't too close to its parent
+	// Cascadeth: We do not enforce this for now
+
 	var parent *types.Header
 	if len(parents) > 0 {
 		parent = parents[len(parents)-1]
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
+	// Cascadeth: all blocks in one chain thus this does not need to change.
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
 	if parent.Time+c.config.Period > header.Time {
+
 		return errInvalidTimestamp
 	}
+
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
 	if err != nil {
@@ -601,24 +614,34 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 		return errUnauthorizedSigner
 	}
 	// If we're amongst the recent signers, wait for the next block
-	for seen, recent := range snap.Recents {
-		if recent == signer {
-			// Signer is among recents, only wait if the current block doesn't shift it out
-			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
-				log.Info("Signed recently, must wait for others")
-				return nil
+
+	// Cascadeth: everyone can sign blocks at any time.
+	/*
+		for seen, recent := range snap.Recents {
+			if recent == signer {
+				// Signer is among recents, only wait if the current block doesn't shift it out
+				if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
+					log.Info("Signed recently, must wait for others")
+					return nil
+				}
 			}
 		}
-	}
+	*/
+
 	// Sweet, the protocol permits us to sign the block, wait for our time
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
-	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		// It's not our turn explicitly to sign, delay it a bit
-		wiggle := time.Duration(len(snap.Signers)/2+1) * wiggleTime
-		delay += time.Duration(rand.Int63n(int64(wiggle)))
 
-		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
-	}
+	// Cascadeth: We do not need to wait for our turn
+	/*
+		if header.Difficulty.Cmp(diffNoTurn) == 0 {
+			// It's not our turn explicitly to sign, delay it a bit
+			wiggle := time.Duration(len(snap.Signers)/2+1) * wiggleTime
+			delay += time.Duration(rand.Int63n(int64(wiggle)))
+
+			log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
+		}
+	*/
+
 	// Sign all the things!
 	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeClique, CliqueRLP(header))
 	if err != nil {
@@ -648,19 +671,28 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 // that a new block should have:
 // * DIFF_NOTURN(2) if BLOCK_NUMBER % SIGNER_COUNT != SIGNER_INDEX
 // * DIFF_INTURN(1) if BLOCK_NUMBER % SIGNER_COUNT == SIGNER_INDEX
+//
+// Cascadeth: distinction between in turn and no turn needed.
 func (c *Clique) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
-	if err != nil {
-		return nil
-	}
-	return calcDifficulty(snap, c.signer)
+	/*
+		snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
+		if err != nil {
+			return nil
+		}
+	*/
+	return calcDifficulty(nil, c.signer)
 }
 
 func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
-	if snap.inturn(snap.Number+1, signer) {
-		return new(big.Int).Set(diffInTurn)
-	}
-	return new(big.Int).Set(diffNoTurn)
+
+	// Cascadeth: distinction between in turn and no turn needed.
+	/*
+		if snap.inturn(snap.Number+1, signer) {
+			return new(big.Int).Set(diffInTurn)
+		}
+		return new(big.Int).Set(diffNoTurn)
+	*/
+	return diffInTurn
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
