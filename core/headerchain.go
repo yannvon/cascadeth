@@ -64,6 +64,8 @@ type HeaderChain struct {
 	currentHeader     atomic.Value // Current head of the header chain (may be above the block chain!)
 	currentHeaderHash common.Hash  // Hash of the current head of the header chain (prevent recomputing all the time)
 
+	currentHeaderByValidator atomic.Value // Cascadeth
+
 	headerCache *lru.Cache // Cache for the most recent block headers
 	tdCache     *lru.Cache // Cache for the most recent block total difficulties
 	numberCache *lru.Cache // Cache for the most recent block numbers
@@ -112,6 +114,13 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 	hc.currentHeaderHash = hc.CurrentHeader().Hash()
 	headHeaderGauge.Update(hc.CurrentHeader().Number.Int64())
 
+	// Cascadeth
+	// TODO read existing heads from db. (as above for exisiting head)
+	// TODO set currentHeaderByValidator consistently
+	var currentHeaderByValidator map[common.Address]*types.Header
+	currentHeaderByValidator = make(map[common.Address]*types.Header)
+	hc.currentHeaderByValidator.Store(currentHeaderByValidator)
+
 	return hc, nil
 }
 
@@ -146,6 +155,8 @@ type headerWriteResult struct {
 // without the real blocks. Hence, writing headers directly should only be done
 // in two scenarios: pure-header mode of operation (light clients), or properly
 // separated header/block phases (non-archive clients).
+//
+// Cascadeth: no need to reorg.
 func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWriteResult, err error) {
 	if len(headers) == 0 {
 		return &headerWriteResult{}, nil
@@ -214,6 +225,8 @@ func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWrit
 	// If the total difficulty is higher than our known, add it to the canonical chain
 	// Second clause in the if statement reduces the vulnerability to selfish mining.
 	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
+
+	// Cascadeth: How is TD chosen for clique to avoid reorgs ?
 	reorg := newTD.Cmp(localTD) > 0
 	if !reorg && newTD.Cmp(localTD) == 0 {
 		if lastNumber < head {
@@ -298,6 +311,7 @@ func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWrit
 
 func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
 	// Do a sanity check that the provided chain is actually ordered and linked
+	// Cascadeth: Here I assume that Hashes and numbers are already changed so that the blocks comply to headerchain (number & hash changed)
 	for i := 1; i < len(chain); i++ {
 		if chain[i].Number.Uint64() != chain[i-1].Number.Uint64()+1 {
 			hash := chain[i].Hash()
@@ -334,7 +348,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 		seals[len(seals)-1] = true
 	}
 
-	abort, results := hc.engine.VerifyHeaders(hc, chain, seals)
+	abort, results := hc.engine.VerifyHeaders(hc, chain, seals) // Cascadeth: Here the magic happens.
 	defer close(abort)
 
 	// Iterate over the headers and ensure they all check out
@@ -502,6 +516,20 @@ func (hc *HeaderChain) GetHeaderByHash(hash common.Hash) *types.Header {
 		return nil
 	}
 	return hc.GetHeader(hash, *number)
+}
+
+// Cascadeth: CurrentHeaderByValidator retrieves the current header for a given validator.
+func (hc *HeaderChain) CurrentHeaderByValidator(validator common.Address) *types.Header {
+	currentHeader := hc.currentHeaderByValidator.Load().(map[common.Address]*types.Header)[validator]
+	return currentHeader
+}
+
+// Cascadeth: SetCurrentHeaderByValidator retrieves the current header for a given validator.
+func (hc *HeaderChain) SetCurrentHeaderByValidator(validator common.Address) {
+
+	// TODO
+	// TODO check where i need to set current head by validator
+
 }
 
 // HasHeader checks if a block header is present in the database or not.

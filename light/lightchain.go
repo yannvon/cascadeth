@@ -459,6 +459,11 @@ func (lc *LightChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	return lc.hc.GetHeaderByHash(hash)
 }
 
+// Cascadeth: CurrentHeaderByValidator retrieves the current header for a given validator.
+func (lc *LightChain) CurrentHeaderByValidator(validator common.Address) *types.Header {
+	return lc.hc.CurrentHeaderByValidator(validator)
+}
+
 // HasHeader checks if a block header is present in the database or not, caching
 // it if present.
 func (lc *LightChain) HasHeader(hash common.Hash, number uint64) bool {

@@ -320,8 +320,6 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 		return nil
 	}
 	// Ensure that the block's timestamp isn't too close to its parent
-	// Cascadeth: We do not enforce this for now
-
 	var parent *types.Header
 	if len(parents) > 0 {
 		parent = parents[len(parents)-1]
@@ -332,10 +330,38 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
-	if parent.Time+c.config.Period > header.Time {
 
-		return errInvalidTimestamp
+	// Cascadeth: We do not enforce this for now
+	/*
+		if parent.Time+c.config.Period > header.Time {
+			return errInvalidTimestamp
+		}
+	*/
+
+	// Cascadeth: Instead verify that local parent is also present and in right order
+	var (
+		localParent     *types.Header
+		localOrder      *big.Int
+		validator       common.Address
+		lastLocalHeader *types.Header
+	)
+
+	localParent = chain.GetHeaderByHash(header.UncleHash)
+	localOrder = header.Difficulty
+	validator = header.Coinbase
+	lastLocalHeader = chain.CurrentHeaderByValidator(validator)
+
+	// Cascadeth: Verify that the local parent corresponds to the last block we received from that validator and
+	// that the number match (this avoids reorgs and forks in the local chains)
+	if lastLocalHeader != localParent || lastLocalHeader.Difficulty.Uint64() != localOrder.Uint64()-1 {
+		// FIXME: Uncle of first local block is always nil
+		// FIXME: Current headers by validator are initialized by nilBlock with difficulty 0
+		// FIXME: Update currentHeaderByValidator in block and headerchain
+		return consensus.ErrUnknownAncestor
 	}
+
+	// Cascadeth: FIXME Could use snapshot to keep track of header numbers ?
+	// Decided against it as having current headers readily available outside of the engine seems useful.
 
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
@@ -343,6 +369,7 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 		return err
 	}
 	// If the block is a checkpoint block, verify the signer list
+	// Cascadeth: No checkpoint blocks for now
 	if number%c.config.Epoch == 0 {
 		signers := make([]byte, len(snap.Signers)*common.AddressLength)
 		for i, signer := range snap.signers() {
@@ -353,6 +380,7 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 			return errMismatchingCheckpointSigners
 		}
 	}
+
 	// All basic checks passed, verify the seal and return
 	return c.verifySeal(chain, header, parents)
 }
@@ -440,10 +468,15 @@ func (c *Clique) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
 // uncles as this consensus mechanism doesn't permit uncles.
+//
+// Cascadeth: Uncles are used to point to local parents
 func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
-	if len(block.Uncles()) > 0 {
-		return errors.New("uncles not allowed")
-	}
+	/*
+		if len(block.Uncles()) > 0 {
+			return errors.New("uncles not allowed")
+		}
+	*/
+	// FIXME is a check necessary ?
 	return nil
 }
 
@@ -451,6 +484,9 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
 // from.
+//
+// Cascadeth: Remove requirement that signer needs to wait for his turn, only
+// keep requirement that signer needs to be one of the current validators.
 func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
@@ -471,24 +507,34 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 	if _, ok := snap.Signers[signer]; !ok {
 		return errUnauthorizedSigner
 	}
-	for seen, recent := range snap.Recents {
-		if recent == signer {
-			// Signer is among recents, only fail if the current block doesn't shift it out
-			if limit := uint64(len(snap.Signers)/2 + 1); seen > number-limit {
-				return errRecentlySigned
+
+	// Cascadeth: Remove recency check
+	/*
+		for seen, recent := range snap.Recents {
+			if recent == signer {
+				// Signer is among recents, only fail if the current block doesn't shift it out
+				if limit := uint64(len(snap.Signers)/2 + 1); seen > number-limit {
+					return errRecentlySigned
+				}
 			}
 		}
-	}
+	*/
+
 	// Ensure that the difficulty corresponds to the turn-ness of the signer
-	if !c.fakeDiff {
-		inturn := snap.inturn(header.Number.Uint64(), signer)
-		if inturn && header.Difficulty.Cmp(diffInTurn) != 0 {
-			return errWrongDifficulty
+	// Casdcadeth: Difficulty field is used for a different purpose and was checked before
+
+	/*
+		if !c.fakeDiff {
+			inturn := snap.inturn(header.Number.Uint64(), signer)
+			if inturn && header.Difficulty.Cmp(diffInTurn) != 0 {
+				return errWrongDifficulty
+			}
+			if !inturn && header.Difficulty.Cmp(diffNoTurn) != 0 {
+				return errWrongDifficulty
+			}
 		}
-		if !inturn && header.Difficulty.Cmp(diffNoTurn) != 0 {
-			return errWrongDifficulty
-		}
-	}
+	*/
+
 	return nil
 }
 

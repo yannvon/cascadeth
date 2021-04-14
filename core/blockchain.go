@@ -115,6 +115,9 @@ const (
 	//  The following incompatible database changes were added:
 	//    * New scheme for contract code in order to separate the codes and trie nodes
 	BlockChainVersion uint64 = 8
+
+	// Cascadeth v0.1: Fixed number of validators
+	nValidators = 2
 )
 
 // CacheConfig contains the configuration values for the trie caching/pruning
@@ -185,8 +188,11 @@ type BlockChain struct {
 
 	chainmu sync.RWMutex // blockchain insertion lock
 
-	currentBlock     atomic.Value // Current head of the block chain
-	currentFastBlock atomic.Value // Current head of the fast-sync chain (may be above the block chain!)
+	currentBlocks     [nValidators]atomic.Value // Current heads of the block chain (Cascadeth: each validator has own head)
+	currentFastBlocks [nValidators]atomic.Value // Current heads of the fast-sync chain (may be above the block chain!) (Cascadeth: each validator has own head)
+
+	currentBlock     atomic.Value // Current heads of the block chain (Cascadeth: last received block)
+	currentFastBlock atomic.Value // Current heads of the fast-sync chain (may be above the block chain!) (Cascadeth: last received block)
 
 	stateCache    state.Database // State database to reuse between imports (contains state cache)
 	bodyCache     *lru.Cache     // Cache for the most recent block bodies
@@ -265,7 +271,15 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	bc.currentBlock.Store(nilBlock)
 	bc.currentFastBlock.Store(nilBlock)
 
-	// Initialize the chain with ancient data if it isn't empty.
+	// Cascadeth: initialize all current blocks
+	for _, b := range bc.currentBlocks {
+		b.Store(nilBlock)
+	}
+	for _, fb := range bc.currentFastBlocks {
+		fb.Store(nilBlock)
+	}
+
+	// Initialize the chain with ancient data if it isn't empty. // FIXME
 	var txIndexBlock uint64
 
 	if bc.empty() {
@@ -473,6 +487,7 @@ func (bc *BlockChain) loadLastState() error {
 	return nil
 }
 
+// FIXME Cascadeth: Not needed ?
 // SetHead rewinds the local chain to a new head. Depending on whether the node
 // was fast synced or full synced and in which state, the method will try to
 // delete minimal data from disk whilst retaining chain consistency.
@@ -481,6 +496,7 @@ func (bc *BlockChain) SetHead(head uint64) error {
 	return err
 }
 
+// FIXME Cascadeth: Not needed ?
 // SetHeadBeyondRoot rewinds the local chain to a new head with the extra condition
 // that the rewind must pass the specified state root. This method is meant to be
 // used when rewiding with snapshots enabled to ensure that we go back further than
@@ -624,6 +640,7 @@ func (bc *BlockChain) SetHeadBeyondRoot(head uint64, root common.Hash) (uint64, 
 	return rootNumber, bc.loadLastState()
 }
 
+// FIXME Cascadeth: Not needed ?
 // FastSyncCommitHead sets the current head block to the one defined by the hash
 // irrelevant what the chain contents were prior.
 func (bc *BlockChain) FastSyncCommitHead(hash common.Hash) error {
@@ -660,6 +677,12 @@ func (bc *BlockChain) CurrentBlock() *types.Block {
 	return bc.currentBlock.Load().(*types.Block)
 }
 
+// CurrentBlock retrieves the current head block of the canonical chain. The
+// block is retrieved from the blockchain's internal cache.
+func (bc *BlockChain) CurrentValidatorBlock(validatorIndex int) *types.Block {
+	return bc.currentBlocks[validatorIndex].Load().(*types.Block)
+}
+
 // Snapshots returns the blockchain snapshot tree.
 func (bc *BlockChain) Snapshots() *snapshot.Tree {
 	return bc.snaps
@@ -669,6 +692,12 @@ func (bc *BlockChain) Snapshots() *snapshot.Tree {
 // chain. The block is retrieved from the blockchain's internal cache.
 func (bc *BlockChain) CurrentFastBlock() *types.Block {
 	return bc.currentFastBlock.Load().(*types.Block)
+}
+
+// CurrentFastBlock retrieves the current fast-sync head block of the canonical
+// chain. The block is retrieved from the blockchain's internal cache.
+func (bc *BlockChain) CurrentValidatorFastBlock(validatorIndex int) *types.Block {
+	return bc.currentFastBlocks[validatorIndex].Load().(*types.Block)
 }
 
 // Validator returns the current validator.
@@ -2464,6 +2493,11 @@ func (bc *BlockChain) GetHeader(hash common.Hash, number uint64) *types.Header {
 // found.
 func (bc *BlockChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	return bc.hc.GetHeaderByHash(hash)
+}
+
+// Cascadeth: CurrentHeaderByValidator retrieves the current header for a given validator.
+func (bc *BlockChain) CurrentHeaderByValidator(validator common.Address) *types.Header {
+	return bc.hc.CurrentHeaderByValidator(validator)
 }
 
 // HasHeader checks if a block header is present in the database or not, caching
