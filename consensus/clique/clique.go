@@ -540,6 +540,9 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
+//
+// Cascadeth: TODO check that upon header creation uncle and difficulty are set correctly
+// TODO implement checkpoint and voting mechanism
 func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
@@ -573,6 +576,7 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 		c.lock.RUnlock()
 	}
 	// Set the correct difficulty
+	// Cascadeth: Local number
 	header.Difficulty = calcDifficulty(snap, c.signer)
 
 	// Ensure the extra data has all its components
