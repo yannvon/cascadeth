@@ -348,7 +348,10 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 
 	localParent = chain.GetHeaderByHash(header.UncleHash)
 	localOrder = header.Difficulty
-	validator = header.Coinbase
+	validator, err := ecrecover(header, c.signatures) // validator is the same as the signer in clique, recover address from signature
+	if err != nil {
+		return err
+	}
 	lastLocalHeader = chain.CurrentHeaderByValidator(validator)
 
 	// Cascadeth: Verify that the local parent corresponds to the last block we received from that validator and
@@ -541,7 +544,7 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
 //
-// Cascadeth: TODO check that upon header creation uncle and difficulty are set correctly
+// Cascadeth: TODO upon header creation uncle and difficulty are set correctly (same place where number and parent are set.)
 // TODO implement checkpoint and voting mechanism
 func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
@@ -576,8 +579,10 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 		c.lock.RUnlock()
 	}
 	// Set the correct difficulty
-	// Cascadeth: Local number
-	header.Difficulty = calcDifficulty(snap, c.signer)
+	// Cascadeth: Local number set previously
+	/*
+		header.Difficulty = calcDifficulty(snap, c.signer)
+	*/
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -596,11 +601,12 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	header.MixDigest = common.Hash{}
 
 	// Ensure the timestamp has the correct delay
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
+	// Cascadeth: Delay compared to Uncle Hash (local parent)
+	localParent := chain.GetHeaderByHash(header.UncleHash)
+	if localParent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	header.Time = parent.Time + c.config.Period
+	header.Time = localParent.Time + c.config.Period
 	if header.Time < uint64(time.Now().Unix()) {
 		header.Time = uint64(time.Now().Unix())
 	}
@@ -611,8 +617,11 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 // rewards given.
 func (c *Clique) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
+	// Cascadeth: Root is meaningless also
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
+
+	// Cascadeth: Uncle is set previously TODO or not ? Check with ethash consensus engine
+	//header.UncleHash = types.CalcUncleHash(nil)
 }
 
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
@@ -681,7 +690,7 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 	// Sweet, the protocol permits us to sign the block, wait for our time
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
 
-	// Cascadeth: We do not need to wait for our turn
+	// Cascadeth: We do not need to wait for our turn and thus no additional dealy added
 	/*
 		if header.Difficulty.Cmp(diffNoTurn) == 0 {
 			// It's not our turn explicitly to sign, delay it a bit
@@ -722,27 +731,24 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 // * DIFF_NOTURN(2) if BLOCK_NUMBER % SIGNER_COUNT != SIGNER_INDEX
 // * DIFF_INTURN(1) if BLOCK_NUMBER % SIGNER_COUNT == SIGNER_INDEX
 //
-// Cascadeth: distinction between in turn and no turn needed.
+// Cascadeth: Method not used
 func (c *Clique) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	/*
-		snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
-		if err != nil {
-			return nil
-		}
-	*/
-	return calcDifficulty(nil, c.signer)
+
+	snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
+	if err != nil {
+		return nil
+	}
+
+	return calcDifficulty(snap, c.signer)
 }
 
+// Cascadeth: Not used
 func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
 
-	// Cascadeth: distinction between in turn and no turn needed.
-	/*
-		if snap.inturn(snap.Number+1, signer) {
-			return new(big.Int).Set(diffInTurn)
-		}
-		return new(big.Int).Set(diffNoTurn)
-	*/
-	return diffInTurn
+	if snap.inturn(snap.Number+1, signer) {
+		return new(big.Int).Set(diffInTurn)
+	}
+	return new(big.Int).Set(diffNoTurn)
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
