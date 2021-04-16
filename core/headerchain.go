@@ -524,14 +524,6 @@ func (hc *HeaderChain) CurrentHeaderByValidator(validator common.Address) *types
 	return currentHeader
 }
 
-// Cascadeth: SetCurrentHeaderByValidator retrieves the current header for a given validator.
-func (hc *HeaderChain) SetCurrentHeaderByValidator(validator common.Address) {
-
-	// TODO
-	// TODO check where i need to set current head by validator
-
-}
-
 // HasHeader checks if a block header is present in the database or not.
 // In theory, if header is present in the database, all relative components
 // like td and hash->number should be present too.
@@ -568,6 +560,19 @@ func (hc *HeaderChain) SetCurrentHeader(head *types.Header) {
 	hc.currentHeader.Store(head)
 	hc.currentHeaderHash = head.Hash()
 	headHeaderGauge.Update(head.Number.Int64())
+}
+
+// Cascadeth: SetCurrentHeaderByValidator retrieves the current header for a given validator.
+func (hc *HeaderChain) SetCurrentHeaderByValidator(validator common.Address, head *types.Header) {
+
+	tmpMap := hc.currentHeaderByValidator.Load().(map[common.Address]*types.Header)
+
+	tmpMap[validator] = head
+	hc.currentHeaderByValidator.Store(tmpMap)
+
+	// TODO write test
+	// TODO check where i need to set current head by validator
+
 }
 
 type (
