@@ -340,26 +340,40 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 
 	// Cascadeth: Instead verify that local parent is also present and in right order
 	var (
-		localParent     *types.Header
-		localOrder      *big.Int
-		validator       common.Address
-		lastLocalHeader *types.Header
+		validatorParent      *types.Header
+		validatorBlockNumber *big.Int
+		validator            common.Address
 	)
 
-	localParent = chain.GetHeaderByHash(header.UncleHash)
-	localOrder = header.Difficulty
-	validator, err := ecrecover(header, c.signatures) // validator is the same as the signer in clique, recover address from signature
+	validatorParent = chain.GetHeaderByHash(header.UncleHash)
+	validatorBlockNumber = header.Difficulty
+
+	// Validator is the same as the signer in clique, recover address from signature
+	validator, err := ecrecover(header, c.signatures)
 	if err != nil {
 		return err
 	}
-	lastLocalHeader = chain.CurrentHeaderByValidator(validator)
+
+	// Recover current header for given validator and associated block number
+	localValidatorHeader := chain.CurrentHeaderByValidator(validator)
+	var localValidatorBlockNumber uint64
+	if localValidatorHeader == nil {
+		localValidatorBlockNumber = 0
+	} else {
+		localValidatorBlockNumber = localValidatorHeader.Difficulty.Uint64()
+	}
 
 	// Cascadeth: Verify that the local parent corresponds to the last block we received from that validator and
 	// that the number match (this avoids reorgs and forks in the local chains)
-	if lastLocalHeader != localParent || lastLocalHeader.Difficulty.Uint64() != localOrder.Uint64()-1 {
-		// FIXME: Uncle of first local block is always nil
-		// FIXME: Current headers by validator are initialized by nilBlock with difficulty 0
+	if localValidatorHeader != validatorParent || localValidatorBlockNumber != validatorBlockNumber.Uint64()-1 {
+		// FIXME: Uncle of first local block is always nil, or genesis ?
 		// FIXME: Update currentHeaderByValidator in block and headerchain
+		println("localValidator:", localValidatorHeader)
+		println("uncleHash:", validatorParent)
+		println("local", localValidatorBlockNumber)
+		println("block difficulty", validatorBlockNumber.Uint64())
+
+		// FIXME: uncleHash and difficulty need to be set correctly !
 		return consensus.ErrUnknownAncestor
 	}
 
@@ -601,15 +615,19 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	header.MixDigest = common.Hash{}
 
 	// Ensure the timestamp has the correct delay
-	// Cascadeth: Delay compared to Uncle Hash (local parent)
-	localParent := chain.GetHeaderByHash(header.UncleHash)
-	if localParent == nil {
-		return consensus.ErrUnknownAncestor
-	}
-	header.Time = localParent.Time + c.config.Period
-	if header.Time < uint64(time.Now().Unix()) {
+	// Cascadeth: Delay compared to Uncle Hash (validator parent)
+	validatorParent := chain.GetHeaderByHash(header.UncleHash)
+
+	// If first block from validator, then no need to check parent
+	if validatorParent == nil {
 		header.Time = uint64(time.Now().Unix())
+	} else {
+		header.Time = validatorParent.Time + c.config.Period
+		if header.Time < uint64(time.Now().Unix()) {
+			header.Time = uint64(time.Now().Unix())
+		}
 	}
+
 	return nil
 }
 
