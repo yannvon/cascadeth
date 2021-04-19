@@ -64,8 +64,6 @@ type HeaderChain struct {
 	currentHeader     atomic.Value // Current head of the header chain (may be above the block chain!)
 	currentHeaderHash common.Hash  // Hash of the current head of the header chain (prevent recomputing all the time)
 
-	currentHeaderByValidator atomic.Value // Cascadeth
-
 	headerCache *lru.Cache // Cache for the most recent block headers
 	tdCache     *lru.Cache // Cache for the most recent block total difficulties
 	numberCache *lru.Cache // Cache for the most recent block numbers
@@ -113,13 +111,6 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 	}
 	hc.currentHeaderHash = hc.CurrentHeader().Hash()
 	headHeaderGauge.Update(hc.CurrentHeader().Number.Int64())
-
-	// Cascadeth
-	// TODO read existing heads from db. (as above for exisiting head)
-	// TODO set currentHeaderByValidator consistently
-	var currentHeaderByValidator map[common.Address]*types.Header
-	currentHeaderByValidator = make(map[common.Address]*types.Header)
-	hc.currentHeaderByValidator.Store(currentHeaderByValidator)
 
 	return hc, nil
 }
@@ -518,12 +509,6 @@ func (hc *HeaderChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	return hc.GetHeader(hash, *number)
 }
 
-// Cascadeth: CurrentHeaderByValidator retrieves the current header for a given validator.
-func (hc *HeaderChain) CurrentHeaderByValidator(validator common.Address) *types.Header {
-	currentHeader := hc.currentHeaderByValidator.Load().(map[common.Address]*types.Header)[validator]
-	return currentHeader
-}
-
 // HasHeader checks if a block header is present in the database or not.
 // In theory, if header is present in the database, all relative components
 // like td and hash->number should be present too.
@@ -562,19 +547,6 @@ func (hc *HeaderChain) SetCurrentHeader(head *types.Header) {
 	headHeaderGauge.Update(head.Number.Int64())
 }
 
-// Cascadeth: SetCurrentHeaderByValidator retrieves the current header for a given validator.
-func (hc *HeaderChain) SetCurrentHeaderByValidator(validator common.Address, head *types.Header) {
-
-	tmpMap := hc.currentHeaderByValidator.Load().(map[common.Address]*types.Header)
-
-	tmpMap[validator] = head
-	hc.currentHeaderByValidator.Store(tmpMap)
-
-	// TODO write test
-	// TODO check where i need to set current head by validator
-
-}
-
 type (
 	// UpdateHeadBlocksCallback is a callback function that is called by SetHead
 	// before head header is updated. The method will return the actual block it
@@ -589,6 +561,8 @@ type (
 
 // SetHead rewinds the local chain to a new head. Everything above the new head
 // will be deleted and the new one set.
+//
+// Cascadeth: Not clear if we need this function
 func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, delFn DeleteBlockContentCallback) {
 	var (
 		parentHash common.Hash

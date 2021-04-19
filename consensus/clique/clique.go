@@ -310,9 +310,7 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
 //
-// Cascadeth: parent hash and number refers to ordering on chain, difficulty and uncle Hash aren't used in Clique/Cascadeth
-// and are thus repurposed. Difficulty is the local number of a block (number of block produced by validator) and
-// uncleHash contains the local parentHash.
+// Cascadeth: parent hash and number refers to local ordering at validator
 func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
@@ -326,59 +324,15 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	} else {
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
-	// Cascadeth: all blocks in one chain thus this does not need to change.
+
+	// Cascadeth: even though multiple side chains, this does not need to change.
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
 
-	// Cascadeth: We do not enforce this for now
-	/*
-		if parent.Time+c.config.Period > header.Time {
-			return errInvalidTimestamp
-		}
-	*/
-
-	// Cascadeth: Instead verify that local parent is also present and in right order
-	var (
-		validatorParent      *types.Header
-		validatorBlockNumber *big.Int
-		validator            common.Address
-	)
-
-	validatorParent = chain.GetHeaderByHash(header.UncleHash)
-	validatorBlockNumber = header.Difficulty
-
-	// Validator is the same as the signer in clique, recover address from signature
-	validator, err := ecrecover(header, c.signatures)
-	if err != nil {
-		return err
+	if parent.Time+c.config.Period > header.Time {
+		return errInvalidTimestamp
 	}
-
-	// Recover current header for given validator and associated block number
-	localValidatorHeader := chain.CurrentHeaderByValidator(validator)
-	var localValidatorBlockNumber uint64
-	if localValidatorHeader == nil {
-		localValidatorBlockNumber = 0
-	} else {
-		localValidatorBlockNumber = localValidatorHeader.Difficulty.Uint64()
-	}
-
-	// Cascadeth: Verify that the local parent corresponds to the last block we received from that validator and
-	// that the number match (this avoids reorgs and forks in the local chains)
-	if localValidatorHeader != validatorParent || localValidatorBlockNumber != validatorBlockNumber.Uint64()-1 {
-		// FIXME: Uncle of first local block is always nil, or genesis ?
-		// FIXME: Update currentHeaderByValidator in block and headerchain
-		println("localValidator:", localValidatorHeader)
-		println("uncleHash:", validatorParent)
-		println("local", localValidatorBlockNumber)
-		println("block difficulty", validatorBlockNumber.Uint64())
-
-		// FIXME: uncleHash and difficulty need to be set correctly !
-		return consensus.ErrUnknownAncestor
-	}
-
-	// Cascadeth: FIXME Could use snapshot to keep track of header numbers ?
-	// Decided against it as having current headers readily available outside of the engine seems useful.
 
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
@@ -485,15 +439,10 @@ func (c *Clique) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 
 // VerifyUncles implements consensus.Engine, always returning an error for any
 // uncles as this consensus mechanism doesn't permit uncles.
-//
-// Cascadeth: Uncles are used to point to local parents
 func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
-	/*
-		if len(block.Uncles()) > 0 {
-			return errors.New("uncles not allowed")
-		}
-	*/
-	// FIXME is a check necessary ?
+	if len(block.Uncles()) > 0 {
+		return errors.New("uncles not allowed")
+	}
 	return nil
 }
 
@@ -538,7 +487,7 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 	*/
 
 	// Ensure that the difficulty corresponds to the turn-ness of the signer
-	// Casdcadeth: Difficulty field is used for a different purpose and was checked before
+	// Casdcadeth: Difficulty field is not used at the moment and thus not verified
 
 	/*
 		if !c.fakeDiff {
@@ -558,7 +507,7 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
 //
-// Cascadeth: TODO upon header creation uncle and difficulty are set correctly (same place where number and parent are set.)
+// Cascadeth: Parent and number must be set previously according to local chain
 // TODO implement checkpoint and voting mechanism
 func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
@@ -593,10 +542,8 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 		c.lock.RUnlock()
 	}
 	// Set the correct difficulty
-	// Cascadeth: Local number set previously
-	/*
-		header.Difficulty = calcDifficulty(snap, c.signer)
-	*/
+	// Cascadeth: Not required but still done for now
+	header.Difficulty = calcDifficulty(snap, c.signer)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -615,19 +562,15 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	header.MixDigest = common.Hash{}
 
 	// Ensure the timestamp has the correct delay
-	// Cascadeth: Delay compared to Uncle Hash (validator parent)
-	validatorParent := chain.GetHeaderByHash(header.UncleHash)
-
-	// If first block from validator, then no need to check parent
-	if validatorParent == nil {
-		header.Time = uint64(time.Now().Unix())
-	} else {
-		header.Time = validatorParent.Time + c.config.Period
-		if header.Time < uint64(time.Now().Unix()) {
-			header.Time = uint64(time.Now().Unix())
-		}
+	// Cascadeth: No changes required
+	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
 	}
-
+	header.Time = parent.Time + c.config.Period
+	if header.Time < uint64(time.Now().Unix()) {
+		header.Time = uint64(time.Now().Unix())
+	}
 	return nil
 }
 
@@ -635,11 +578,9 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 // rewards given.
 func (c *Clique) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
-	// Cascadeth: Root is meaningless also
+	// Cascadeth: FIXME this root is meaningless
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-
-	// Cascadeth: Uncle is set previously TODO or not ? Check with ethash consensus engine
-	//header.UncleHash = types.CalcUncleHash(nil)
+	header.UncleHash = types.CalcUncleHash(nil)
 }
 
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,

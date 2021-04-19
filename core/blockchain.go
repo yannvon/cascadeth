@@ -2495,11 +2495,6 @@ func (bc *BlockChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	return bc.hc.GetHeaderByHash(hash)
 }
 
-// Cascadeth: CurrentHeaderByValidator retrieves the current header for a given validator.
-func (bc *BlockChain) CurrentHeaderByValidator(validator common.Address) *types.Header {
-	return bc.hc.CurrentHeaderByValidator(validator)
-}
-
 // HasHeader checks if a block header is present in the database or not, caching
 // it if present.
 func (bc *BlockChain) HasHeader(hash common.Hash, number uint64) bool {

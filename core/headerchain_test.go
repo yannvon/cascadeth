@@ -19,11 +19,9 @@ package core
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -114,42 +112,4 @@ func TestHeaderInsertion(t *testing.T) {
 
 	// And B becomes even longer
 	testInsert(t, hc, chainB[107:128], CanonStatTy, nil)
-}
-
-// Cascadeth: This test checks setting new header for validators
-func TestSetCurrentHeaderByValidator(t *testing.T) {
-
-	var (
-		db      = rawdb.NewMemoryDatabase()
-		genesis = new(Genesis).MustCommit(db)
-	)
-
-	hc, err := NewHeaderChain(db, params.AllEthashProtocolChanges, ethash.NewFaker(), func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	// chain A: G->A1->A2...A128
-	chainA := makeHeaderChain(genesis.Header(), 128, ethash.NewFaker(), db, 10)
-
-	//log.Root().SetHandler(log.StdoutHandler)
-	println("whooop")
-
-	newHeader := chainA[3]
-	newHeader.Difficulty = big.NewInt(42)
-	validator := common.Address{}
-
-	hc.SetCurrentHeaderByValidator(validator, newHeader)
-
-	if hc.CurrentHeaderByValidator(validator).Difficulty.Uint64() != 42 {
-		t.Errorf("Setting the header went wrong")
-	}
-
-	newHeader = chainA[4]
-	newHeader.Difficulty = big.NewInt(56)
-	hc.SetCurrentHeaderByValidator(validator, newHeader)
-
-	if hc.CurrentHeaderByValidator(validator).Difficulty.Uint64() != 56 {
-		t.Errorf("Setting the header went wrong")
-	}
-
 }
