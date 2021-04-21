@@ -224,7 +224,9 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		}
 		for _, recent := range snap.Recents {
 			if recent == signer {
-				return nil, errRecentlySigned
+				// Cascadeth: Do not enforce recency check
+				// return nil, errRecentlySigned
+				continue
 			}
 		}
 		snap.Recents[number] = signer

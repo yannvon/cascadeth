@@ -513,6 +513,24 @@ func TestCascadeth(t *testing.T) {
 		results []string
 		failure error
 	}{
+		// -- Cascadeth specific tests
+		{
+			// Cascadeth: Validators should be able to add many blocks in sequence (without recently signed error from clique)
+			signers: []string{"A", "B"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+				{signer: "A", voted: "D", auth: true},
+				{signer: "A", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "D", auth: true},
+				{signer: "C"},
+				{signer: "B", voted: "E", auth: true},
+			},
+			results: []string{"A", "B", "C", "D"},
+		},
+
+		// -- Tests imported from clique, still relevant and can be interesting in the future
+
 		{
 			// Single signer, no votes cast
 			signers: []string{"A"},
@@ -785,7 +803,8 @@ func TestCascadeth(t *testing.T) {
 		},
 	}
 	// Run through the scenarios and test them
-	for i, tt := range tests[:1] {
+	for i, tt := range tests {
+		println(i)
 		// Create the account pool and generate the initial set of signers
 		accounts := newTesterAccountPool()
 
@@ -796,7 +815,7 @@ func TestCascadeth(t *testing.T) {
 		for j := 0; j < len(signers); j++ {
 			for k := j + 1; k < len(signers); k++ {
 				if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
-					signers[j], signers[k] = signers[k], signers[j]
+					signers[j], signers[k] = signers[k], signers[j] // Cascadeth: what does this do ?
 				}
 			}
 		}
@@ -834,17 +853,31 @@ func TestCascadeth(t *testing.T) {
 		*/
 
 		// Thus we create one chain per validator
+		// We also make sure that we group succesive votes from the same signer in the same batch,
+		// as long as the newbatch field is not set. This allows for more test cases.
 		signerVotes := make(map[string][]testerVote)
+		previousSigner := ""
 
 		for _, vote := range tt.votes {
 			signerVotes[vote.signer] = append(signerVotes[vote.signer], vote)
+			if previousSigner != vote.signer {
+				vote.newbatch = true
+				previousSigner = vote.signer
+			}
 		}
 
-		// Split the blocks up into individual import batches (cornercase testing)
-		// Cascadeth: For now batches are for the chains, ie. each chain is imported one after another FIXME
-		batches := [][]*types.Block{nil}
+		// Cascadeth: FIXME it makes sense for every block to be in an individual batch, such that we can insert blocks in the same order as above
 
-		for _, signer := range tt.signers {
+		// Cascadeth: For now batches are for the chains, ie. each chain is imported one after another FIXME
+		batches := [][]*types.Block{}
+
+		// Find existing signers (through keys and not through tt.signers, ie. the original signers)
+		allSigners := make([]string, 0, len(signerVotes))
+		for s := range signerVotes {
+			allSigners = append(allSigners, s)
+		}
+
+		for _, signer := range allSigners { // Cascadeth: FIXME some votes might come from signers that were not initially signers
 			nBlocks := len(signerVotes[signer])
 
 			if nBlocks == 0 {
@@ -880,6 +913,11 @@ func TestCascadeth(t *testing.T) {
 				blocks[j] = block.WithSeal(header)
 			}
 
+			// We need every local chain to be inserted in a new batch to avoid non contiguous insert error in insertChain
+			if len(blocks) != 0 {
+				batches = append(batches, nil)
+			}
+
 			for j, block := range blocks {
 				if signerVotes[signer][j].newbatch {
 					batches = append(batches, nil)
@@ -903,6 +941,11 @@ func TestCascadeth(t *testing.T) {
 			}
 		}
 		if failed {
+			continue
+		}
+		// FIXME cascadeth
+		if len(batches) == 0 {
+			t.Errorf("test %d: empty batches: should have %d votes", i, len(tt.votes))
 			continue
 		}
 		if _, err = chain.InsertChain(batches[len(batches)-1]); err != tt.failure {
