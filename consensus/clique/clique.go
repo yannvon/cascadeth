@@ -136,6 +136,10 @@ var (
 	// errRecentlySigned is returned if a header is signed by an authorized entity
 	// that already signed a header recently, thus is temporarily not allowed to.
 	errRecentlySigned = errors.New("recently signed")
+
+	// errWrongValidatorSigned is returned if a header is signed by an entity
+	// that has not already signed the previous block of the sidechain.
+	errWrongValidatorSigned = errors.New("wrong validator signed")
 )
 
 // SignerFn hashes and signs the data to be signed by a backing account.
@@ -353,7 +357,7 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	}
 
 	// All basic checks passed, verify the seal and return
-	return c.verifySeal(chain, header, parents)
+	return c.verifySeal(chain, header, parents, parent)
 }
 
 // snapshot retrieves the authorization snapshot at a given point in time.
@@ -453,7 +457,7 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 //
 // Cascadeth: Remove requirement that signer needs to wait for his turn, only
 // keep requirement that signer needs to be one of the current validators.
-func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header, parent *types.Header) error {
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -472,6 +476,17 @@ func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 	if _, ok := snap.Signers[signer]; !ok {
 		return errUnauthorizedSigner
+	}
+
+	// Cascadeth: IMPORTANT the parent block must stem from the same validator, except for the genesis block
+	if parent.Number.Uint64() != 0 {
+		signerParent, errParent := c.Author(parent)
+		if errParent != nil {
+			return errParent
+		}
+		if signerParent != signer {
+			return errWrongValidatorSigned
+		}
 	}
 
 	// Cascadeth: Remove recency check
