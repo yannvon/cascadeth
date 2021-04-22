@@ -88,6 +88,7 @@ func (ap *testerAccountPool) sign(header *types.Header, signer string) {
 // the account may or may not have cast a Clique vote.
 type testerVote struct {
 	signer     string
+	chain      string // Cascadeth: can be specified if block in different chain shall be created by signer
 	voted      string
 	auth       bool
 	checkpoint []string
@@ -515,8 +516,57 @@ func TestCascadeth(t *testing.T) {
 	}{
 		// -- Cascadeth specific tests
 		{
-			// Cascadeth: Validators should be able to add many blocks in sequence (without recently signed error from clique)
+			// Validators should be able to add many blocks in sequence (without recently signed error from clique)
 			signers: []string{"A", "B"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+				{signer: "A", voted: "D", auth: true},
+				{signer: "A", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "D", auth: true},
+				{signer: "B", voted: "E", auth: true},
+			},
+			results: []string{"A", "B", "C", "D"},
+		}, {
+			// Entities should not be able to add blocks to a chain that wasn't created by them
+			signers: []string{"A", "B"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+				{signer: "A", voted: "D", auth: true},
+				{signer: "B", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "D", auth: true},
+				{signer: "B", chain: "A", voted: "E", auth: true},
+			},
+			failure: errWrongValidatorSigned,
+		}, {
+			// For now new signers can not be added
+			signers: []string{"A", "B"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+				{signer: "A", voted: "D", auth: true},
+				{signer: "B", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "D", auth: true},
+				{signer: "C"},
+			},
+			failure: errUnauthorizedSigner,
+		}, {
+			// TODO Entities should not be able to create more than one chain that links to genesis
+			signers: []string{"A", "B", "C"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+				{signer: "A", voted: "D", auth: true},
+				{signer: "A", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "D", auth: true},
+				{signer: "C"},
+				{signer: "B", voted: "E", auth: true},
+			},
+			results: []string{"A", "B", "C", "D"},
+		}, {
+			// TODO Entities should not be able to fork their chain
+			signers: []string{"A", "B", "C"},
 			votes: []testerVote{
 				{signer: "A", voted: "C", auth: true},
 				{signer: "A", voted: "D", auth: true},
@@ -839,55 +889,40 @@ func TestCascadeth(t *testing.T) {
 		engine := New(config.Clique, db)
 		engine.fakeDiff = true
 
-		// Cascadeth: we can't reuse generateChain method, since we want the parents and number to reflect only local dependencies
-		/*
-			blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, len(tt.votes), func(j int, gen *core.BlockGen) {
-				// Cast the vote contained in this block
-				gen.SetCoinbase(accounts.address(tt.votes[j].voted))
-				if tt.votes[j].auth {
-					var nonce types.BlockNonce
-					copy(nonce[:], nonceAuthVote)
-					gen.SetNonce(nonce)
-				}
-			})
-		*/
-
 		// Thus we create one chain per validator
 		// We also make sure that we group succesive votes from the same signer in the same batch,
 		// as long as the newbatch field is not set. This allows for more test cases.
-		signerVotes := make(map[string][]testerVote)
-		previousSigner := ""
+		chainBlocks := make(map[string][]testerVote)
 
 		for _, vote := range tt.votes {
-			signerVotes[vote.signer] = append(signerVotes[vote.signer], vote)
-			if previousSigner != vote.signer {
-				vote.newbatch = true
-				previousSigner = vote.signer
+			chain := vote.chain
+			if chain == "" {
+				chain = vote.signer
 			}
+			chainBlocks[chain] = append(chainBlocks[chain], vote)
 		}
 
-		// Cascadeth: FIXME it makes sense for every block to be in an individual batch, such that we can insert blocks in the same order as above
-
-		// Cascadeth: For now batches are for the chains, ie. each chain is imported one after another FIXME
-		batches := [][]*types.Block{}
-
-		// Find existing signers (through keys and not through tt.signers, ie. the original signers)
-		allSigners := make([]string, 0, len(signerVotes))
-		for s := range signerVotes {
-			allSigners = append(allSigners, s)
+		// Find existing chains (through keys and not through tt.signers, ie. the original signers)
+		allSideChains := make([]string, 0, len(chainBlocks))
+		for s := range chainBlocks {
+			allSideChains = append(allSideChains, s)
 		}
 
-		for _, signer := range allSigners { // Cascadeth: FIXME some votes might come from signers that were not initially signers
-			nBlocks := len(signerVotes[signer])
+		// Create blocks for each sidechain
+		sideChainBlocks := make(map[string][]*types.Block)
+
+		for _, chain := range allSideChains {
+			nBlocks := len(chainBlocks[chain])
 
 			if nBlocks == 0 {
 				break
 			}
 
+			// We generate a single chain for each signer, such that the blocks have the correct parentHash
 			blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, nBlocks, func(j int, gen *core.BlockGen) {
 				// Cast the vote contained in this block
-				gen.SetCoinbase(accounts.address(signerVotes[signer][j].voted))
-				if signerVotes[signer][j].auth {
+				gen.SetCoinbase(accounts.address(chainBlocks[chain][j].voted))
+				if chainBlocks[chain][j].auth {
 					var nonce types.BlockNonce
 					copy(nonce[:], nonceAuthVote)
 					gen.SetNonce(nonce)
@@ -902,28 +937,48 @@ func TestCascadeth(t *testing.T) {
 					header.ParentHash = blocks[j-1].Hash()
 				}
 				header.Extra = make([]byte, extraVanity+extraSeal)
-				if auths := signerVotes[signer][j].checkpoint; auths != nil {
+				if auths := chainBlocks[chain][j].checkpoint; auths != nil {
 					header.Extra = make([]byte, extraVanity+len(auths)*common.AddressLength+extraSeal)
 					accounts.checkpoint(header, auths)
 				}
 				header.Difficulty = diffInTurn // Ignored, we just need a valid number
 
 				// Generate the signature, embed it into the header and the block
-				accounts.sign(header, signer)
+				accounts.sign(header, chainBlocks[chain][j].signer) // Here don't sign according to chain, but according to signer !
 				blocks[j] = block.WithSeal(header)
 			}
+			sideChainBlocks[chain] = blocks
+		}
 
-			// We need every local chain to be inserted in a new batch to avoid non contiguous insert error in insertChain
-			if len(blocks) != 0 {
+		// Cascadeth: Batches are grouped according to chronological order, where consecutive blocks from same chain are batched together,
+		// except if newBatch is set
+		batches := [][]*types.Block{}
+
+		previousChain := ""
+		currentSideChainBlock := make(map[string]int)
+
+		for _, vote := range tt.votes {
+
+			currentChain := vote.chain
+			if currentChain == "" {
+				currentChain = vote.signer
+			}
+
+			// Check if we should create new batch
+			if previousChain != currentChain || vote.newbatch {
 				batches = append(batches, nil)
 			}
 
-			for j, block := range blocks {
-				if signerVotes[signer][j].newbatch {
-					batches = append(batches, nil)
-				}
-				batches[len(batches)-1] = append(batches[len(batches)-1], block)
-			}
+			index := currentSideChainBlock[currentChain]
+			currentBlock := sideChainBlocks[currentChain][index]
+
+			// Add block to batch
+			batches[len(batches)-1] = append(batches[len(batches)-1], currentBlock)
+
+			// Set temp variables
+			previousChain = currentChain
+			currentSideChainBlock[currentChain] += 1
+
 		}
 
 		// Pass all the headers through clique and ensure tallying succeeds
@@ -943,11 +998,14 @@ func TestCascadeth(t *testing.T) {
 		if failed {
 			continue
 		}
-		// FIXME cascadeth
+
+		// Sanity check for test creation only
 		if len(batches) == 0 {
 			t.Errorf("test %d: empty batches: should have %d votes", i, len(tt.votes))
 			continue
 		}
+
+		// Last batch insert might produce errors (desired or not)
 		if _, err = chain.InsertChain(batches[len(batches)-1]); err != tt.failure {
 			t.Errorf("test %d: failure mismatch: have %v, want %v", i, err, tt.failure)
 		}
@@ -990,5 +1048,8 @@ func TestCascadeth(t *testing.T) {
 				}
 			}
 		*/
+
+		// Cascadeth: Check that the chains contain all desired blocks (no error during import does not mean that all blocks were accepted correctly)
+		// TODO
 	}
 }
