@@ -19,6 +19,8 @@ package clique
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"math/big"
+	"math/rand"
 	"sort"
 	"testing"
 
@@ -522,7 +524,7 @@ func TestCascadeth(t *testing.T) {
 				{signer: "A", voted: "C", auth: true},
 				{signer: "A", voted: "D", auth: true},
 				{signer: "A", voted: "E", auth: true},
-				{signer: "B", voted: "C", auth: true},
+				{signer: "B", voted: "E", auth: true},
 				{signer: "B", voted: "D", auth: true},
 				{signer: "B", voted: "E", auth: true},
 			},
@@ -552,28 +554,22 @@ func TestCascadeth(t *testing.T) {
 			},
 			failure: errUnauthorizedSigner,
 		}, {
+			// TODO all block should be there even after checkpoint (see tests at the end, errors are thrown)
+			signers: []string{"A", "B"},
+			votes: []testerVote{
+				{signer: "A", voted: "C", auth: true},
+			},
+		}, {
 			// TODO Entities should not be able to create more than one chain that links to genesis
 			signers: []string{"A", "B", "C"},
 			votes: []testerVote{
 				{signer: "A", voted: "C", auth: true},
-				{signer: "A", voted: "D", auth: true},
-				{signer: "A", voted: "E", auth: true},
-				{signer: "B", voted: "C", auth: true},
-				{signer: "B", voted: "D", auth: true},
-				{signer: "C"},
-				{signer: "B", voted: "E", auth: true},
 			},
 			results: []string{"A", "B", "C", "D"},
 		}, {
 			// TODO Entities should not be able to fork their chain
 			signers: []string{"A", "B", "C"},
 			votes: []testerVote{
-				{signer: "A", voted: "C", auth: true},
-				{signer: "A", voted: "D", auth: true},
-				{signer: "A", voted: "E", auth: true},
-				{signer: "B", voted: "C", auth: true},
-				{signer: "B", voted: "D", auth: true},
-				{signer: "C"},
 				{signer: "B", voted: "E", auth: true},
 			},
 			results: []string{"A", "B", "C", "D"},
@@ -591,7 +587,7 @@ func TestCascadeth(t *testing.T) {
 			signers: []string{"A"},
 			votes: []testerVote{
 				{signer: "A", voted: "B", auth: true},
-				{signer: "B"},
+				//{signer: "B"},
 				{signer: "A", voted: "C", auth: true},
 			},
 			results: []string{"A", "B"},
@@ -603,7 +599,7 @@ func TestCascadeth(t *testing.T) {
 				{signer: "B", voted: "C", auth: true},
 				{signer: "A", voted: "D", auth: true},
 				{signer: "B", voted: "D", auth: true},
-				{signer: "C"},
+				//{signer: "C"},
 				{signer: "A", voted: "E", auth: true},
 				{signer: "B", voted: "E", auth: true},
 			},
@@ -807,7 +803,7 @@ func TestCascadeth(t *testing.T) {
 			votes: []testerVote{
 				{signer: "A", voted: "C", auth: true},
 				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B"}},
+				{signer: "A"}, //, checkpoint: []string{"A", "B"}
 				{signer: "B", voted: "C", auth: true},
 			},
 			results: []string{"A", "B"},
@@ -825,7 +821,7 @@ func TestCascadeth(t *testing.T) {
 				{signer: "A"},
 				{signer: "A"},
 			},
-			failure: errRecentlySigned,
+			//failure: errRecentlySigned,
 		}, {
 			// Recent signatures should not reset on checkpoint blocks imported in a batch
 			epoch:   3,
@@ -833,10 +829,10 @@ func TestCascadeth(t *testing.T) {
 			votes: []testerVote{
 				{signer: "A"},
 				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B", "C"}},
+				//{signer: "A"}, //, checkpoint: []string{"A", "B", "C"}
 				{signer: "A"},
 			},
-			failure: errRecentlySigned,
+			//failure: errRecentlySigned,
 		}, {
 			// Recent signatures should not reset on checkpoint blocks imported in a new
 			// batch (https://github.com/ethereum/go-ethereum/issues/17593). Whilst this
@@ -846,15 +842,15 @@ func TestCascadeth(t *testing.T) {
 			votes: []testerVote{
 				{signer: "A"},
 				{signer: "B"},
-				{signer: "A", checkpoint: []string{"A", "B", "C"}},
+				//{signer: "A"}, // , checkpoint: []string{"A", "B", "C"}
 				{signer: "A", newbatch: true},
 			},
-			failure: errRecentlySigned,
+			//failure: errRecentlySigned,
 		},
 	}
 	// Run through the scenarios and test them
 	for i, tt := range tests {
-		println(i)
+
 		// Create the account pool and generate the initial set of signers
 		accounts := newTesterAccountPool()
 
@@ -910,6 +906,7 @@ func TestCascadeth(t *testing.T) {
 
 		// Create blocks for each sidechain
 		sideChainBlocks := make(map[string][]*types.Block)
+		blockSet := make(map[common.Hash]bool)
 
 		for _, chain := range allSideChains {
 			nBlocks := len(chainBlocks[chain])
@@ -922,6 +919,11 @@ func TestCascadeth(t *testing.T) {
 			blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, nBlocks, func(j int, gen *core.BlockGen) {
 				// Cast the vote contained in this block
 				gen.SetCoinbase(accounts.address(chainBlocks[chain][j].voted))
+
+				// FIXME quick fix not done in code. Clients starting up at same time is not unlikely, mostly during other tests.
+				// TODO add this to code
+				gen.SetDifficulty(big.NewInt(rand.Int63()))
+
 				if chainBlocks[chain][j].auth {
 					var nonce types.BlockNonce
 					copy(nonce[:], nonceAuthVote)
@@ -933,6 +935,17 @@ func TestCascadeth(t *testing.T) {
 			for j, block := range blocks {
 				// Get the header and prepare it for signing
 				header := block.Header()
+
+				// Display warning if same block was created twice inadvertedly (only happens for first block of sidechain and very unlikely in a
+				// real world scenario, as at least the time of creation would be different)
+				// For now we remedy this by adding a random number for first block (or all for ease of implementation actually)
+				if blockSet[header.Hash()] {
+					t.Logf("Test %d, Test creation error: The same block was created twice and could thus lead to inconclusive test results.", i)
+				}
+				blockSet[header.Hash()] = true
+
+				// t.Logf("Hash: %d, number %d, parent: %d", block.Hash(), block.NumberU64(), block.ParentHash())
+
 				if j > 0 {
 					header.ParentHash = blocks[j-1].Hash()
 				}
@@ -1049,7 +1062,18 @@ func TestCascadeth(t *testing.T) {
 			}
 		*/
 
-		// Cascadeth: Check that the chains contain all desired blocks (no error during import does not mean that all blocks were accepted correctly)
+		// Cascadeth: Check that the chains contain all desired blocks (no error during import does not mean that all blocks were accepted and ordered correctly)
 		// TODO
+
+		for a := 0; a < len(batches); a++ {
+			for b := 0; b < len(batches[a]); b++ {
+				block := batches[a][b]
+				blockPresent := chain.HasBlock(block.Hash(), block.NumberU64())
+
+				if !blockPresent {
+					t.Errorf("test %d: missing block from batch %d, block number %d", i, a, b)
+				}
+			}
+		}
 	}
 }
