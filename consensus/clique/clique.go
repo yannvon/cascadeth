@@ -297,7 +297,7 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 	}
 	// Ensure that the block's difficulty is meaningful (may not be correct at this point)
 	if number > 0 {
-		if header.Difficulty == nil || (header.Difficulty.Cmp(diffInTurn) != 0 && header.Difficulty.Cmp(diffNoTurn) != 0) { // FIXME Cascadeth only had diffInTurn difficulty.
+		if header.Difficulty == nil { // FIXME Cascadeth allows for random difficulty.
 			return errInvalidDifficulty
 		}
 	}
@@ -558,7 +558,7 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	}
 	// Set the correct difficulty
 	// Cascadeth: Not required but still done for now
-	header.Difficulty = calcDifficulty(snap, c.signer)
+	header.Difficulty = calcDifficulty(c.signer)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -705,24 +705,29 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 // * DIFF_NOTURN(2) if BLOCK_NUMBER % SIGNER_COUNT != SIGNER_INDEX
 // * DIFF_INTURN(1) if BLOCK_NUMBER % SIGNER_COUNT == SIGNER_INDEX
 //
-// Cascadeth: Method not used
+// Cascadeth: Used to prevent two equal blocks as signature is not part of the hash
 func (c *Clique) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
 
-	snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
-	if err != nil {
-		return nil
-	}
+	/*
+		snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
+		if err != nil {
+			return nil
+		}
+	*/
 
-	return calcDifficulty(snap, c.signer)
+	return calcDifficulty(c.signer)
 }
 
-// Cascadeth: Not used
-func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
+// Cascadeth: Used to prevent two equal blocks as signature is not part of the hash
+func calcDifficulty(signer common.Address) *big.Int {
 
-	if snap.inturn(snap.Number+1, signer) {
+	/*if snap.inturn(snap.Number+1, signer) {
 		return new(big.Int).Set(diffInTurn)
 	}
 	return new(big.Int).Set(diffNoTurn)
+	*/
+
+	return big.NewInt(rand.Int63())
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
