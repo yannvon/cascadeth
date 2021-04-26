@@ -19,8 +19,6 @@ package clique
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"math/big"
-	"math/rand"
 	"sort"
 	"testing"
 
@@ -524,7 +522,7 @@ func TestCascadeth(t *testing.T) {
 				{signer: "A", voted: "C", auth: true},
 				{signer: "A", voted: "D", auth: true},
 				{signer: "A", voted: "E", auth: true},
-				{signer: "B", voted: "E", auth: true},
+				{signer: "B", voted: "C", auth: true},
 				{signer: "B", voted: "D", auth: true},
 				{signer: "B", voted: "E", auth: true},
 			},
@@ -849,7 +847,7 @@ func TestCascadeth(t *testing.T) {
 		},
 	}
 	// Run through the scenarios and test them
-	for i, tt := range tests {
+	for i, tt := range tests[:10] {
 
 		// Create the account pool and generate the initial set of signers
 		accounts := newTesterAccountPool()
@@ -906,7 +904,6 @@ func TestCascadeth(t *testing.T) {
 
 		// Create blocks for each sidechain
 		sideChainBlocks := make(map[string][]*types.Block)
-		blockSet := make(map[common.Hash]bool)
 
 		for _, chain := range allSideChains {
 			nBlocks := len(chainBlocks[chain])
@@ -920,10 +917,6 @@ func TestCascadeth(t *testing.T) {
 				// Cast the vote contained in this block
 				gen.SetCoinbase(accounts.address(chainBlocks[chain][j].voted))
 
-				// FIXME quick fix not done in code. Clients starting up at same time is not unlikely, mostly during other tests.
-				// TODO add this to code
-				gen.SetDifficulty(big.NewInt(rand.Int63()))
-
 				if chainBlocks[chain][j].auth {
 					var nonce types.BlockNonce
 					copy(nonce[:], nonceAuthVote)
@@ -936,16 +929,7 @@ func TestCascadeth(t *testing.T) {
 				// Get the header and prepare it for signing
 				header := block.Header()
 
-				// Display warning if same block was created twice inadvertedly (only happens for first block of sidechain and very unlikely in a
-				// real world scenario, as at least the time of creation would be different)
-				// For now we remedy this by adding a random number for first block (or all for ease of implementation actually)
-				if blockSet[header.Hash()] {
-					t.Logf("Test %d, Test creation error: The same block was created twice and could thus lead to inconclusive test results.", i)
-				}
-				blockSet[header.Hash()] = true
-
-				// t.Logf("Hash: %d, number %d, parent: %d", block.Hash(), block.NumberU64(), block.ParentHash())
-
+				// Because signing changes hash, we need to change parent accordingly
 				if j > 0 {
 					header.ParentHash = blocks[j-1].Hash()
 				}
@@ -957,10 +941,31 @@ func TestCascadeth(t *testing.T) {
 				header.Difficulty = diffInTurn // Ignored, we just need a valid number
 
 				// Generate the signature, embed it into the header and the block
+				// Note: this does change de hash of the block, and thus we do not have issues with the same block appearing twice!
 				accounts.sign(header, chainBlocks[chain][j].signer) // Here don't sign according to chain, but according to signer !
 				blocks[j] = block.WithSeal(header)
 			}
 			sideChainBlocks[chain] = blocks
+		}
+
+		// Verification of test creation FIXME this has become irrelecant
+		blockSet := make(map[common.Hash]bool)
+
+		for _, chain := range allSideChains {
+			// t.Logf("side chain: %v", chain)
+			blocks := sideChainBlocks[chain]
+			for _, block := range blocks {
+				header := block.Header()
+
+				// Display warning if same block was created twice inadvertedly (I thought i could happen for first block of sidechain and very unlikely in a
+				// real world scenario, as at least the time of creation would be different, but actually can't happen !)
+				if blockSet[header.Hash()] {
+					t.Logf("Test %d, Test creation error: The same block was created twice and could thus lead to inconclusive test results.", i)
+				}
+				blockSet[header.Hash()] = true
+
+				//t.Logf("Hash: %d, number %d, parent: %d", block.Hash(), block.NumberU64(), block.ParentHash())
+			}
 		}
 
 		// Cascadeth: Batches are grouped according to chronological order, where consecutive blocks from same chain are batched together,
