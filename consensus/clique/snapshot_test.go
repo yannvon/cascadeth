@@ -19,15 +19,18 @@ package clique
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"fmt"
 	"sort"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -93,6 +96,142 @@ type testerVote struct {
 	auth       bool
 	checkpoint []string
 	newbatch   bool
+}
+
+// GenerateMultiChain creates batches that correspond to the desired blocks provided.
+// The first block's parent will be a newly created genesis block.
+//
+// For now intermediate states are not correct. FIXME what do they represent ?
+//
+// Blocks created by GenerateMultiChain do contain a valid clique signature.
+func GenerateMultiChain(config *params.ChainConfig, engine consensus.Engine, db ethdb.Database,
+	initialSigners []string, desiredBlocks []testerVote) [][]*types.Block {
+
+	if config.Clique == nil {
+		panic(fmt.Sprintf("generate multichain only works with clique/cascade consensus engine"))
+	}
+
+	// Create the account pool and generate the initial set of signers
+	accounts := newTesterAccountPool()
+
+	signers := make([]common.Address, len(initialSigners))
+	for j, signer := range initialSigners {
+		signers[j] = accounts.address(signer)
+	}
+	for j := 0; j < len(signers); j++ {
+		for k := j + 1; k < len(signers); k++ {
+			if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
+				signers[j], signers[k] = signers[k], signers[j] // Cascadeth: what does this do ?
+			}
+		}
+	}
+
+	// Create the genesis block with the initial set of signers
+	genesis := &core.Genesis{
+		ExtraData: make([]byte, extraVanity+common.AddressLength*len(signers)+extraSeal),
+	}
+	for j, signer := range signers {
+		copy(genesis.ExtraData[extraVanity+j*common.AddressLength:], signer[:])
+	}
+	// Create a pristine blockchain with the genesis injected
+	genesis.Commit(db)
+
+	// Thus we create one chain per validator
+	// We also make sure that we group succesive votes from the same signer in the same batch,
+	// as long as the newbatch field is not set. This allows for more test cases.
+	chainBlocks := make(map[string][]testerVote)
+
+	for _, block := range desiredBlocks {
+		chain := block.chain
+		if chain == "" {
+			chain = block.signer
+		}
+		chainBlocks[chain] = append(chainBlocks[chain], block)
+	}
+
+	// Find existing chains (through keys and not through tt.signers, ie. the original signers)
+	allSideChains := make([]string, 0, len(chainBlocks))
+	for s := range chainBlocks {
+		allSideChains = append(allSideChains, s)
+	}
+
+	// Create blocks for each sidechain
+	sideChainBlocks := make(map[string][]*types.Block)
+
+	for _, chain := range allSideChains {
+		nBlocks := len(chainBlocks[chain])
+
+		if nBlocks == 0 {
+			break
+		}
+
+		// We generate a single chain for each signer, such that the blocks have the correct parentHash
+		blocks, _ := core.GenerateChain(config, genesis.ToBlock(db), engine, db, nBlocks, func(j int, gen *core.BlockGen) {
+			// Cast the vote contained in this block
+			gen.SetCoinbase(accounts.address(chainBlocks[chain][j].voted))
+
+			if chainBlocks[chain][j].auth {
+				var nonce types.BlockNonce
+				copy(nonce[:], nonceAuthVote)
+				gen.SetNonce(nonce)
+			}
+		})
+
+		// Iterate through the blocks and seal them individually
+		for j, block := range blocks {
+			// Get the header and prepare it for signing
+			header := block.Header()
+
+			// Because signing changes hash, we need to change parent accordingly
+			if j > 0 {
+				header.ParentHash = blocks[j-1].Hash()
+			}
+			header.Extra = make([]byte, extraVanity+extraSeal)
+			if auths := chainBlocks[chain][j].checkpoint; auths != nil {
+				header.Extra = make([]byte, extraVanity+len(auths)*common.AddressLength+extraSeal)
+				accounts.checkpoint(header, auths)
+			}
+			header.Difficulty = diffInTurn // Ignored, we just need a valid number
+
+			// Generate the signature, embed it into the header and the block
+			// Note: this does change de hash of the block, and thus we do not have issues with the same block appearing twice!
+			accounts.sign(header, chainBlocks[chain][j].signer) // Here don't sign according to chain, but according to signer !
+			blocks[j] = block.WithSeal(header)
+		}
+		sideChainBlocks[chain] = blocks
+	}
+
+	// Cascadeth: Batches are grouped according to chronological order, where consecutive blocks from same chain are batched together,
+	// except if newBatch is set
+	batches := [][]*types.Block{}
+
+	previousChain := ""
+	currentSideChainBlock := make(map[string]int)
+
+	for _, vote := range desiredBlocks {
+
+		currentChain := vote.chain
+		if currentChain == "" {
+			currentChain = vote.signer
+		}
+
+		// Check if we should create new batch
+		if previousChain != currentChain || vote.newbatch {
+			batches = append(batches, nil)
+		}
+
+		index := currentSideChainBlock[currentChain]
+		currentBlock := sideChainBlocks[currentChain][index]
+
+		// Add block to batch
+		batches[len(batches)-1] = append(batches[len(batches)-1], currentBlock)
+
+		// Set temp variables
+		previousChain = currentChain
+		currentSideChainBlock[currentChain] += 1
+	}
+
+	return batches
 }
 
 // Tests that Clique signer voting is evaluated correctly for various simple and
@@ -849,30 +988,7 @@ func TestCascadeth(t *testing.T) {
 	// Run through the scenarios and test them
 	for i, tt := range tests[:10] {
 
-		// Create the account pool and generate the initial set of signers
-		accounts := newTesterAccountPool()
-
-		signers := make([]common.Address, len(tt.signers))
-		for j, signer := range tt.signers {
-			signers[j] = accounts.address(signer)
-		}
-		for j := 0; j < len(signers); j++ {
-			for k := j + 1; k < len(signers); k++ {
-				if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
-					signers[j], signers[k] = signers[k], signers[j] // Cascadeth: what does this do ?
-				}
-			}
-		}
-		// Create the genesis block with the initial set of signers
-		genesis := &core.Genesis{
-			ExtraData: make([]byte, extraVanity+common.AddressLength*len(signers)+extraSeal),
-		}
-		for j, signer := range signers {
-			copy(genesis.ExtraData[extraVanity+j*common.AddressLength:], signer[:])
-		}
-		// Create a pristine blockchain with the genesis injected
 		db := rawdb.NewMemoryDatabase()
-		genesis.Commit(db)
 
 		// Assemble a chain of headers from the cast votes
 		config := *params.TestChainConfig
@@ -883,121 +999,9 @@ func TestCascadeth(t *testing.T) {
 		engine := New(config.Clique, db)
 		engine.fakeDiff = true
 
-		// Thus we create one chain per validator
-		// We also make sure that we group succesive votes from the same signer in the same batch,
-		// as long as the newbatch field is not set. This allows for more test cases.
-		chainBlocks := make(map[string][]testerVote)
-
-		for _, vote := range tt.votes {
-			chain := vote.chain
-			if chain == "" {
-				chain = vote.signer
-			}
-			chainBlocks[chain] = append(chainBlocks[chain], vote)
-		}
-
-		// Find existing chains (through keys and not through tt.signers, ie. the original signers)
-		allSideChains := make([]string, 0, len(chainBlocks))
-		for s := range chainBlocks {
-			allSideChains = append(allSideChains, s)
-		}
-
-		// Create blocks for each sidechain
-		sideChainBlocks := make(map[string][]*types.Block)
-
-		for _, chain := range allSideChains {
-			nBlocks := len(chainBlocks[chain])
-
-			if nBlocks == 0 {
-				break
-			}
-
-			// We generate a single chain for each signer, such that the blocks have the correct parentHash
-			blocks, _ := core.GenerateChain(&config, genesis.ToBlock(db), engine, db, nBlocks, func(j int, gen *core.BlockGen) {
-				// Cast the vote contained in this block
-				gen.SetCoinbase(accounts.address(chainBlocks[chain][j].voted))
-
-				if chainBlocks[chain][j].auth {
-					var nonce types.BlockNonce
-					copy(nonce[:], nonceAuthVote)
-					gen.SetNonce(nonce)
-				}
-			})
-
-			// Iterate through the blocks and seal them individually
-			for j, block := range blocks {
-				// Get the header and prepare it for signing
-				header := block.Header()
-
-				// Because signing changes hash, we need to change parent accordingly
-				if j > 0 {
-					header.ParentHash = blocks[j-1].Hash()
-				}
-				header.Extra = make([]byte, extraVanity+extraSeal)
-				if auths := chainBlocks[chain][j].checkpoint; auths != nil {
-					header.Extra = make([]byte, extraVanity+len(auths)*common.AddressLength+extraSeal)
-					accounts.checkpoint(header, auths)
-				}
-				header.Difficulty = diffInTurn // Ignored, we just need a valid number
-
-				// Generate the signature, embed it into the header and the block
-				// Note: this does change de hash of the block, and thus we do not have issues with the same block appearing twice!
-				accounts.sign(header, chainBlocks[chain][j].signer) // Here don't sign according to chain, but according to signer !
-				blocks[j] = block.WithSeal(header)
-			}
-			sideChainBlocks[chain] = blocks
-		}
-
-		// Verification of test creation FIXME this has become irrelecant
-		blockSet := make(map[common.Hash]bool)
-
-		for _, chain := range allSideChains {
-			// t.Logf("side chain: %v", chain)
-			blocks := sideChainBlocks[chain]
-			for _, block := range blocks {
-				header := block.Header()
-
-				// Display warning if same block was created twice inadvertedly (I thought i could happen for first block of sidechain and very unlikely in a
-				// real world scenario, as at least the time of creation would be different, but actually can't happen !)
-				if blockSet[header.Hash()] {
-					t.Logf("Test %d, Test creation error: The same block was created twice and could thus lead to inconclusive test results.", i)
-				}
-				blockSet[header.Hash()] = true
-
-				//t.Logf("Hash: %d, number %d, parent: %d", block.Hash(), block.NumberU64(), block.ParentHash())
-			}
-		}
-
-		// Cascadeth: Batches are grouped according to chronological order, where consecutive blocks from same chain are batched together,
-		// except if newBatch is set
-		batches := [][]*types.Block{}
-
-		previousChain := ""
-		currentSideChainBlock := make(map[string]int)
-
-		for _, vote := range tt.votes {
-
-			currentChain := vote.chain
-			if currentChain == "" {
-				currentChain = vote.signer
-			}
-
-			// Check if we should create new batch
-			if previousChain != currentChain || vote.newbatch {
-				batches = append(batches, nil)
-			}
-
-			index := currentSideChainBlock[currentChain]
-			currentBlock := sideChainBlocks[currentChain][index]
-
-			// Add block to batch
-			batches[len(batches)-1] = append(batches[len(batches)-1], currentBlock)
-
-			// Set temp variables
-			previousChain = currentChain
-			currentSideChainBlock[currentChain] += 1
-
-		}
+		// We generate batches by generating a single chain for each signer,
+		// such that the blocks have the correct parentHash and are signed correctly
+		batches := GenerateMultiChain(&config, engine, db, tt.signers, tt.votes)
 
 		// Pass all the headers through clique and ensure tallying succeeds
 		chain, err := core.NewBlockChain(db, nil, &config, engine, vm.Config{}, nil, nil)
@@ -1031,45 +1035,10 @@ func TestCascadeth(t *testing.T) {
 			continue
 		}
 
-		// Cascadeth: This is not applicable for now
-
-		/*
-
-			// No failure was produced or requested, generate the final voting snapshot
-			head := blocks[len(blocks)-1]
-
-			snap, err := engine.snapshot(chain, head.NumberU64(), head.Hash(), nil)
-			if err != nil {
-				t.Errorf("test %d: failed to retrieve voting snapshot: %v", i, err)
-				continue
-			}
-			// Verify the final list of signers against the expected ones
-			signers = make([]common.Address, len(tt.results))
-			for j, signer := range tt.results {
-				signers[j] = accounts.address(signer)
-			}
-			for j := 0; j < len(signers); j++ {
-				for k := j + 1; k < len(signers); k++ {
-					if bytes.Compare(signers[j][:], signers[k][:]) > 0 {
-						signers[j], signers[k] = signers[k], signers[j]
-					}
-				}
-			}
-			result := snap.signers()
-			if len(result) != len(signers) {
-				t.Errorf("test %d: signers mismatch: have %x, want %x", i, result, signers)
-				continue
-			}
-			for j := 0; j < len(result); j++ {
-				if !bytes.Equal(result[j][:], signers[j][:]) {
-					t.Errorf("test %d, signer %d: signer mismatch: have %x, want %x", i, j, result[j], signers[j])
-				}
-			}
-		*/
+		// TODO verify vote succeeded like in CliqueTest
 
 		// Cascadeth: Check that the chains contain all desired blocks (no error during import does not mean that all blocks were accepted and ordered correctly)
-		// TODO
-
+		totalCount := 0
 		for a := 0; a < len(batches); a++ {
 			for b := 0; b < len(batches[a]); b++ {
 				block := batches[a][b]
@@ -1078,7 +1047,12 @@ func TestCascadeth(t *testing.T) {
 				if !blockPresent {
 					t.Errorf("test %d: missing block from batch %d, block number %d", i, a, b)
 				}
+				totalCount++
 			}
+		}
+
+		if totalCount != len(tt.votes) {
+			t.Errorf("Some votes/blocks were not cast/created")
 		}
 	}
 }
