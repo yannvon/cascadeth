@@ -42,6 +42,12 @@ var (
 	unknownBlock = types.NewBlock(&types.Header{GasLimit: params.GenesisGasLimit}, nil, nil, nil, trie.NewStackTrie(nil))
 )
 
+/*
+Cascadeth concerns:
+- Need to change Hash and announcement limits of fetcher
+
+*/
+
 // makeChain creates a chain of n blocks starting at and including parent.
 // the returned hash chain is ordered head->parent. In addition, every 3rd block
 // contains a transaction and every 5th an uncle to allow testing correct block
@@ -128,6 +134,8 @@ func (f *fetcherTester) broadcastBlock(block *types.Block, propagate bool) {
 
 // chainHeight retrieves the current height (block number) of the chain.
 func (f *fetcherTester) chainHeight() uint64 {
+	// TODO Cascadeth
+	//panic("chain height should not be needed for cascadeth")
 	f.lock.RLock()
 	defer f.lock.RUnlock()
 
@@ -135,6 +143,15 @@ func (f *fetcherTester) chainHeight() uint64 {
 		return f.headers[f.hashes[len(f.hashes)-1]].Number.Uint64()
 	}
 	return f.blocks[f.hashes[len(f.hashes)-1]].NumberU64()
+}
+
+// Cascadeth: chainSize retrieves the current size (number of blocks) of the chain.
+func (f *fetcherTester) chainSize() uint64 {
+
+	f.lock.RLock()
+	defer f.lock.RUnlock()
+
+	return uint64(len(f.hashes)) // FIXME -1 ?
 }
 
 // insertChain injects a new headers into the simulated chain.
@@ -148,9 +165,11 @@ func (f *fetcherTester) insertHeaders(headers []*types.Header) (int, error) {
 			return i, errors.New("unknown parent")
 		}
 		// Discard any new blocks if the same height already exists
+		// Cascadeth: Keep all blocks
 		if header.Number.Uint64() <= f.headers[f.hashes[len(f.hashes)-1]].Number.Uint64() {
 			return i, nil
 		}
+
 		// Otherwise build our current chain
 		f.hashes = append(f.hashes, header.Hash())
 		f.headers[header.Hash()] = header
@@ -169,6 +188,7 @@ func (f *fetcherTester) insertChain(blocks types.Blocks) (int, error) {
 			return i, errors.New("unknown parent")
 		}
 		// Discard any new blocks if the same height already exists
+		// Cascadeth: Keep all blocks
 		if block.NumberU64() <= f.blocks[f.hashes[len(f.hashes)-1]].NumberU64() {
 			return i, nil
 		}
@@ -307,14 +327,23 @@ func verifyImportDone(t *testing.T, imported chan interface{}) {
 }
 
 // verifyChainHeight verifies the chain height is as expected.
+// Cascadeth: Not needed, instead verify number of blocks
 func verifyChainHeight(t *testing.T, fetcher *fetcherTester, height uint64) {
 	if fetcher.chainHeight() != height {
 		t.Fatalf("chain height mismatch, got %d, want %d", fetcher.chainHeight(), height)
 	}
 }
 
+// Cascadeth: verifyChainSize verifies the chain size is as expected.
+func verifyChainSize(t *testing.T, fetcher *fetcherTester, size uint64) {
+	if fetcher.chainSize() != size {
+		t.Fatalf("chain size mismatch, got %d, want %d", fetcher.chainSize(), size)
+	}
+}
+
 // Tests that a fetcher accepts block/header announcements and initiates retrievals
 // for them, successfully importing into the local chain.
+// Cascadeth: We can keep it the same.
 func TestFullSequentialAnnouncements(t *testing.T)  { testSequentialAnnouncements(t, false) }
 func TestLightSequentialAnnouncements(t *testing.T) { testSequentialAnnouncements(t, true) }
 
@@ -423,6 +452,8 @@ func testOverlappingAnnouncements(t *testing.T, light bool) {
 	// Iteratively announce blocks, but overlap them continuously
 	overlap := 16
 	imported := make(chan interface{}, len(hashes)-1)
+
+	// Cascadeth: Sends notifications for 16 blocks before first one is imported
 	for i := 0; i < overlap; i++ {
 		imported <- nil
 	}
@@ -611,6 +642,8 @@ func TestImportDeduplication(t *testing.T) {
 
 // Tests that blocks with numbers much lower or higher than out current head get
 // discarded to prevent wasting resources on useless blocks from faulty peers.
+
+// Cascadeth: We do not want that to happen. TODO remove this protection
 func TestDistantPropagationDiscarding(t *testing.T) {
 	// Create a long chain to import and define the discard boundaries
 	hashes, blocks := makeChain(3*maxQueueDist, 0, genesis)
@@ -627,12 +660,14 @@ func TestDistantPropagationDiscarding(t *testing.T) {
 	tester.lock.Unlock()
 
 	// Ensure that a block with a lower number than the threshold is discarded
+	// Cascadeth: change to "is kept"
 	tester.fetcher.Enqueue("lower", blocks[hashes[low]])
 	time.Sleep(10 * time.Millisecond)
 	if !tester.fetcher.queue.Empty() {
 		t.Fatalf("fetcher queued stale block")
 	}
 	// Ensure that a block with a higher number than the threshold is discarded
+	// Cascadeth: change to "is kept"
 	tester.fetcher.Enqueue("higher", blocks[hashes[high]])
 	time.Sleep(10 * time.Millisecond)
 	if !tester.fetcher.queue.Empty() {
@@ -643,6 +678,7 @@ func TestDistantPropagationDiscarding(t *testing.T) {
 // Tests that announcements with numbers much lower or higher than out current
 // head get discarded to prevent wasting resources on useless blocks from faulty
 // peers.
+// Cascadeth: We do not want that to happen. TODO remove this protection
 func TestFullDistantAnnouncementDiscarding(t *testing.T)  { testDistantAnnouncementDiscarding(t, false) }
 func TestLightDistantAnnouncementDiscarding(t *testing.T) { testDistantAnnouncementDiscarding(t, true) }
 
@@ -686,6 +722,7 @@ func testDistantAnnouncementDiscarding(t *testing.T, light bool) {
 
 // Tests that peers announcing blocks with invalid numbers (i.e. not matching
 // the headers provided afterwards) get dropped as malicious.
+// Cascadeth: Can stay the same
 func TestFullInvalidNumberAnnouncement(t *testing.T)  { testInvalidNumberAnnouncement(t, false) }
 func TestLightInvalidNumberAnnouncement(t *testing.T) { testInvalidNumberAnnouncement(t, true) }
 
@@ -741,6 +778,7 @@ func testInvalidNumberAnnouncement(t *testing.T, light bool) {
 
 // Tests that if a block is empty (i.e. header only), no body request should be
 // made, and instead the header should be assembled into a whole block in itself.
+// Cascadeth: Can stay the same
 func TestEmptyBlockShortCircuit(t *testing.T) {
 	// Create a chain of blocks to import
 	hashes, blocks := makeChain(32, 0, genesis)
@@ -782,6 +820,9 @@ func TestEmptyBlockShortCircuit(t *testing.T) {
 // Tests that a peer is unable to use unbounded memory with sending infinite
 // block announcements to a node, but that even in the face of such an attack,
 // the fetcher remains operational.
+// Cascadeth: Can remain the same, in cascadeth however validators can produce
+// valid blocks, thus spam prevention needs to be extended not just to announcements
+// but also to blocks. The next test handles this case to some extent.
 func TestHashMemoryExhaustionAttack(t *testing.T) {
 	// Create a tester with instrumented import hooks
 	tester := newTester(false)
@@ -829,6 +870,7 @@ func TestHashMemoryExhaustionAttack(t *testing.T) {
 // Tests that blocks sent to the fetcher (either through propagation or via hash
 // announces and retrievals) don't pile up indefinitely, exhausting available
 // system memory.
+// Cascadeth TODO analyse further.
 func TestBlockMemoryExhaustionAttack(t *testing.T) {
 	// Create a tester with instrumented import hooks
 	tester := newTester(false)
@@ -878,4 +920,159 @@ func TestBlockMemoryExhaustionAttack(t *testing.T) {
 		verifyImportEvent(t, imported, true)
 	}
 	verifyImportDone(t, imported)
+}
+
+// Cascadeth: Tests that blocks arriving from various sources (multiple propagations, hash
+// announces, etc) and various chains, are loaded correctly.
+func TestImportCascadeth(t *testing.T) {
+	// Create two blocks to import (one for duplication, the other for stalling)
+	chainSize := 10
+	hashesA, blocksA := makeChain(chainSize, 0, genesis)
+	hashesB, blocksB := makeChain(chainSize, 1, genesis)
+	hashesC, blocksC := makeChain(chainSize, 2, genesis)
+	//totalSize := 3 * uint32(len(hashesA)-1)
+
+	// Create the tester and wrap the importer with a counter
+	tester := newTester(false)
+	headerFetcherA := tester.makeHeaderFetcher("validA", blocksA, -gatherSlack)
+	bodyFetcherA := tester.makeBodyFetcher("validA", blocksA, 0)
+
+	headerFetcherB := tester.makeHeaderFetcher("validB", blocksB, -gatherSlack)
+	bodyFetcherB := tester.makeBodyFetcher("validB", blocksB, 0)
+
+	/*
+		counter := uint32(0)
+		tester.fetcher.insertChain = func(blocks types.Blocks) (int, error) {
+			atomic.AddUint32(&counter, uint32(len(blocks)))
+			return tester.insertChain(blocks)
+		}
+	*/
+
+	// Instrument the fetching and imported events
+	fetching := make(chan []common.Hash)
+	imported := make(chan interface{}, 3*(len(hashesA)-1))
+
+	tester.fetcher.fetchingHook = func(hashes []common.Hash) { fetching <- hashes }
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) { imported <- block }
+
+	for i := len(hashesA) - 2; i >= 0; i-- {
+		t.Logf("A %d %d", i, uint64(len(hashesA)-i-1))
+		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		verifyImportEvent(t, imported, true)
+	}
+
+	for i := len(hashesB) - 2; i >= 0; i-- {
+		t.Logf("B %d", i)
+		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
+		verifyImportEvent(t, imported, true)
+	}
+
+	for i := len(hashesB) - 2; i >= 0; i-- {
+		tester.fetcher.Enqueue("validC", blocksC[hashesC[i]])
+	}
+
+	verifyImportCount(t, imported, 2*(len(hashesA)-1))
+
+	/*
+		if counter != totalSize {
+			t.Fatalf("import invocation count mismatch: have %v, want %v", counter, totalSize)
+		}
+	*/
+}
+
+func TestLightSequentialAnnouncementsCascadeth(t *testing.T) {
+	testSequentialAnnouncementsCascadeth(t, true)
+}
+
+func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
+	// Create a chain of blocks to import
+
+	// Only works for 1 ! FIXME, must be able to import longer chains as well !
+	targetBlocks := 1
+	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
+	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
+
+	tester := newTester(light)
+	headerFetcherA := tester.makeHeaderFetcher("validA", blocksA, -gatherSlack)
+	bodyFetcherA := tester.makeBodyFetcher("validA", blocksA, 0)
+
+	headerFetcherB := tester.makeHeaderFetcher("validB", blocksB, -gatherSlack)
+	bodyFetcherB := tester.makeBodyFetcher("validB", blocksB, 0)
+
+	// Iteratively announce blocks until all are imported
+	imported := make(chan interface{})
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		if light {
+			if header == nil {
+				t.Fatalf("Fetcher try to import empty header")
+			}
+			imported <- header
+		} else {
+			if block == nil {
+				t.Fatalf("Fetcher try to import empty block")
+			}
+			imported <- block
+		}
+	}
+	for i := len(hashesA) - 2; i >= 0; i-- {
+		t.Logf("A %d %d", i, hashesA[i])
+		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		verifyImportEvent(t, imported, true)
+	}
+
+	for i := len(hashesB) - 2; i >= 0; i-- {
+		t.Logf("B %d %d", i, hashesB[i])
+		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
+		verifyImportEvent(t, imported, true)
+	}
+
+	verifyImportDone(t, imported)
+	verifyChainSize(t, tester, 2*uint64(len(hashesA)-1))
+}
+
+func TestLightInTurnAnnouncementsCascadeth(t *testing.T) {
+	testSequentialAnnouncementsCascadeth(t, true)
+}
+
+func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
+	// Create a chain of blocks to import
+
+	// Only works for 1 ! FIXME, must be able to import longer chains as well !
+	targetBlocks := 5
+	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
+	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
+
+	tester := newTester(light)
+	headerFetcherA := tester.makeHeaderFetcher("validA", blocksA, -gatherSlack)
+	bodyFetcherA := tester.makeBodyFetcher("validA", blocksA, 0)
+
+	headerFetcherB := tester.makeHeaderFetcher("validB", blocksB, -gatherSlack)
+	bodyFetcherB := tester.makeBodyFetcher("validB", blocksB, 0)
+
+	// Iteratively announce blocks until all are imported
+	imported := make(chan interface{})
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		if light {
+			if header == nil {
+				t.Fatalf("Fetcher try to import empty header")
+			}
+			imported <- header
+		} else {
+			if block == nil {
+				t.Fatalf("Fetcher try to import empty block")
+			}
+			imported <- block
+		}
+	}
+	for i := len(hashesA) - 2; i >= 0; i-- {
+		t.Logf("A %d %d", i, hashesA[i])
+		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		t.Logf("B %d %d", i, hashesB[i])
+		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
+		verifyImportEvent(t, imported, true)
+		verifyImportEvent(t, imported, true)
+	}
+
+	verifyImportDone(t, imported)
+	verifyChainSize(t, tester, 2*uint64(len(hashesA)-1))
 }
