@@ -949,11 +949,15 @@ func TestImportCascadeth(t *testing.T) {
 	*/
 
 	// Instrument the fetching and imported events
-	fetching := make(chan []common.Hash)
 	imported := make(chan interface{}, 3*(len(hashesA)-1))
 
-	tester.fetcher.fetchingHook = func(hashes []common.Hash) { fetching <- hashes }
-	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) { imported <- block }
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		if block == nil {
+			t.Fatalf("Fetcher try to import empty block")
+		}
+		imported <- block
+		t.Log("One block imported correctly !")
+	}
 
 	for i := len(hashesA) - 2; i >= 0; i-- {
 		t.Logf("A %d %d", i, uint64(len(hashesA)-i-1))
@@ -962,7 +966,7 @@ func TestImportCascadeth(t *testing.T) {
 	}
 
 	for i := len(hashesB) - 2; i >= 0; i-- {
-		t.Logf("B %d", i)
+		t.Logf("B %d %d", i, uint64(len(hashesB)-i-1))
 		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
 		verifyImportEvent(t, imported, true)
 	}
@@ -982,6 +986,9 @@ func TestImportCascadeth(t *testing.T) {
 
 func TestLightSequentialAnnouncementsCascadeth(t *testing.T) {
 	testSequentialAnnouncementsCascadeth(t, true)
+}
+func TestFullSequentialAnnouncementsCascadeth(t *testing.T) {
+	testSequentialAnnouncementsCascadeth(t, false)
 }
 
 func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
@@ -1031,14 +1038,16 @@ func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
 }
 
 func TestLightInTurnAnnouncementsCascadeth(t *testing.T) {
-	testSequentialAnnouncementsCascadeth(t, true)
+	testInTurnAnnouncementsCascadeth(t, true)
 }
-
+func TestFullInTurnAnnouncementsCascadeth(t *testing.T) {
+	testInTurnAnnouncementsCascadeth(t, false)
+}
 func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
 	// Create a chain of blocks to import
 
 	// Only works for 1 ! FIXME, must be able to import longer chains as well !
-	targetBlocks := 5
+	targetBlocks := 20
 	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
 	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
 
@@ -1067,9 +1076,10 @@ func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
 	for i := len(hashesA) - 2; i >= 0; i-- {
 		t.Logf("A %d %d", i, hashesA[i])
 		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		verifyImportEvent(t, imported, true)
+
 		t.Logf("B %d %d", i, hashesB[i])
 		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
-		verifyImportEvent(t, imported, true)
 		verifyImportEvent(t, imported, true)
 	}
 
