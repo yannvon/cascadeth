@@ -995,7 +995,7 @@ func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
 	// Create a chain of blocks to import
 
 	// Only works for 1 ! FIXME, must be able to import longer chains as well !
-	targetBlocks := 1
+	targetBlocks := 10
 	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
 	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
 
@@ -1014,11 +1014,13 @@ func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
 				t.Fatalf("Fetcher try to import empty header")
 			}
 			imported <- header
+			t.Log("One header imported correctly !")
 		} else {
 			if block == nil {
 				t.Fatalf("Fetcher try to import empty block")
 			}
 			imported <- block
+			t.Log("One block imported correctly !")
 		}
 	}
 	for i := len(hashesA) - 2; i >= 0; i-- {
@@ -1066,11 +1068,13 @@ func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
 				t.Fatalf("Fetcher try to import empty header")
 			}
 			imported <- header
+			t.Log("One header imported correctly !")
 		} else {
 			if block == nil {
 				t.Fatalf("Fetcher try to import empty block")
 			}
 			imported <- block
+			t.Log("One block imported correctly !")
 		}
 	}
 	for i := len(hashesA) - 2; i >= 0; i-- {

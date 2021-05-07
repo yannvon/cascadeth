@@ -39,7 +39,8 @@ const (
 )
 
 const (
-	maxUncleDist = 7   // Maximum allowed backward distance from the chain head
+	// TODO Cascadeth: Neeed to change/remove most of these
+	maxUncleDist = 700 // Maximum allowed backward distance from the chain head
 	maxQueueDist = 32  // Maximum allowed distance from the chain head to queue
 	hashLimit    = 256 // Maximum number of unique blocks or headers a peer may have announced
 	blockLimit   = 64  // Maximum number of unique blocks a peer may have delivered
@@ -337,6 +338,8 @@ func (f *BlockFetcher) loop() {
 	defer completeTimer.Stop()
 
 	for {
+		println("new loop hello")
+
 		// Clean up any expired block fetches
 		for hash, announce := range f.fetching {
 			if time.Since(announce.time) > fetchTimeout {
@@ -344,7 +347,7 @@ func (f *BlockFetcher) loop() {
 			}
 		}
 		// Import any queued blocks that could potentially fit
-		height := f.chainHeight()
+		// height := f.chainHeight()
 		for !f.queue.Empty() {
 			op := f.queue.PopItem().(*blockOrHeaderInject)
 			hash := op.hash()
@@ -352,19 +355,28 @@ func (f *BlockFetcher) loop() {
 				f.queueChangeHook(hash, false)
 			}
 			// If too high up the chain or phase, continue later
-			number := op.number()
-			if number > height+1 {
-				f.queue.Push(op, -int64(number))
-				if f.queueChangeHook != nil {
-					f.queueChangeHook(hash, true)
-				}
-				break
-			}
+			// Cascadeth: Not the case, we want all blocks immediately
+			/*
+				number := op.number()
+					if number > height+1 {
+						f.queue.Push(op, -int64(number))
+						if f.queueChangeHook != nil {
+							f.queueChangeHook(hash, true)
+						}
+						break
+					}
+			*/
+
 			// Otherwise if fresh and still unknown, try and import
-			if (number+maxUncleDist < height) || (f.light && f.getHeader(hash) != nil) || (!f.light && f.getBlock(hash) != nil) {
+			// TODO Cascadeth: Don't discard block because its number is too low !
+			// Test effect: One more block of chain B can be imported.
+			// number+maxUncleDist < height) ||
+			if (f.light && f.getHeader(hash) != nil) || (!f.light && f.getBlock(hash) != nil) {
 				f.forgetBlock(hash)
 				continue
 			}
+
+			// Cascadeth: Basically immediately import all block that were land in queue
 			if f.light {
 				f.importHeaders(op.origin, op.header)
 			} else {
@@ -381,6 +393,7 @@ func (f *BlockFetcher) loop() {
 			// A block was announced, make sure the peer isn't DOSing us
 			blockAnnounceInMeter.Mark(1)
 
+			// TODO Cascadeth: We can remove this limitation
 			count := f.announces[notification.origin] + 1
 			if count > hashLimit {
 				log.Debug("Peer exceeded outstanding announces", "peer", notification.origin, "limit", hashLimit)
@@ -388,13 +401,18 @@ func (f *BlockFetcher) loop() {
 				break
 			}
 			// If we have a valid block number, check that it's potentially useful
-			if notification.number > 0 {
-				if dist := int64(notification.number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
-					log.Debug("Peer discarded announcement", "peer", notification.origin, "number", notification.number, "hash", notification.hash, "distance", dist)
-					blockAnnounceDropMeter.Mark(1)
-					break
+			// Cascadeth: (Sadly) at this stage are numbers are potentially useful
+			// TODO: I imagine we have previously checked if we already know hash ?
+			/*
+				if notification.number > 0 {
+					if dist := int64(notification.number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
+						log.Debug("Peer discarded announcement", "peer", notification.origin, "number", notification.number, "hash", notification.hash, "distance", dist)
+						blockAnnounceDropMeter.Mark(1)
+						break
+					}
 				}
-			}
+			*/
+
 			// All is well, schedule the announce if block's not yet downloading
 			if _, ok := f.fetching[notification.hash]; ok {
 				break
@@ -424,6 +442,8 @@ func (f *BlockFetcher) loop() {
 
 		case hash := <-f.done:
 			// A pending import finished, remove all traces of the notification
+			// Cascadeth: TODO I imagine we must keep hash somewhere, such that we don't fetch same block twice ?
+			// Or do I need to add this manually ? Presumably its done before fetcher.
 			f.forgetHash(hash)
 			f.forgetBlock(hash)
 
@@ -444,6 +464,7 @@ func (f *BlockFetcher) loop() {
 					f.forgetHash(hash)
 
 					// If the block still didn't arrive, queue for fetching
+					// Cascadeth: Here is an example where we look if we already have header/block in chain.
 					if (f.light && f.getHeader(hash) == nil) || (!f.light && f.getBlock(hash) == nil) {
 						request[announce.origin] = append(request[announce.origin], hash)
 						f.fetching[hash] = announce
@@ -589,7 +610,7 @@ func (f *BlockFetcher) loop() {
 					f.enqueue(announce.origin, nil, block)
 				}
 			}
-
+		// --------------------- Cascadeth TODO -----------------
 		case filter := <-f.bodyFilter:
 			// Block bodies arrived, extract any explicitly requested blocks, return the rest
 			var task *bodyFilterTask

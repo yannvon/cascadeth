@@ -712,6 +712,8 @@ func TestCascadeth(t *testing.T) {
 			results: []string{"A", "B", "C", "D"},
 		},
 
+		// TODO some chains should be able to grow much faster than others (do not discard sidechains)
+
 		// -- Tests imported from clique, still relevant and can be interesting in the future
 
 		{
