@@ -338,16 +338,20 @@ func (f *BlockFetcher) loop() {
 	defer completeTimer.Stop()
 
 	for {
-		println("new loop hello")
+		//println("new loop hello")
 
 		// Clean up any expired block fetches
-		for hash, announce := range f.fetching {
-			if time.Since(announce.time) > fetchTimeout {
-				f.forgetHash(hash)
+		// Cascadeth: Really inconvenient for debugging
+		// FIXME disable for now
+		/*
+			for hash, announce := range f.fetching {
+				if time.Since(announce.time) > fetchTimeout {
+					f.forgetHash(hash)
+				}
 			}
-		}
+		*/
 		// Import any queued blocks that could potentially fit
-		// height := f.chainHeight()
+		height := f.chainHeight()
 		for !f.queue.Empty() {
 			op := f.queue.PopItem().(*blockOrHeaderInject)
 			hash := op.hash()
@@ -355,17 +359,18 @@ func (f *BlockFetcher) loop() {
 				f.queueChangeHook(hash, false)
 			}
 			// If too high up the chain or phase, continue later
-			// Cascadeth: Not the case, we want all blocks immediately
-			/*
-				number := op.number()
-					if number > height+1 {
-						f.queue.Push(op, -int64(number))
-						if f.queueChangeHook != nil {
-							f.queueChangeHook(hash, true)
-						}
-						break
-					}
-			*/
+			// Cascadeth: Not the case, we want all blocks immediately ?
+			// Or do we ? we still need parent to be imported already ?
+
+			// Why does removing this code fail so many tests ?
+			number := op.number()
+			if number > height+1 {
+				f.queue.Push(op, -int64(number))
+				if f.queueChangeHook != nil {
+					f.queueChangeHook(hash, true)
+				}
+				break
+			}
 
 			// Otherwise if fresh and still unknown, try and import
 			// TODO Cascadeth: Don't discard block because its number is too low !
@@ -538,6 +543,7 @@ func (f *BlockFetcher) loop() {
 				hash := header.Hash()
 
 				// Filter fetcher-requested headers from other synchronisation algorithms
+				// Cascadeth test issue FIXME: new header doesn't pass this test
 				if announce := f.fetching[hash]; announce != nil && announce.origin == task.peer && f.fetched[hash] == nil && f.completing[hash] == nil && f.queued[hash] == nil {
 					// If the delivered header does not match the promised number, drop the announcer
 					if header.Number.Uint64() != announce.number {
@@ -610,7 +616,6 @@ func (f *BlockFetcher) loop() {
 					f.enqueue(announce.origin, nil, block)
 				}
 			}
-		// --------------------- Cascadeth TODO -----------------
 		case filter := <-f.bodyFilter:
 			// Block bodies arrived, extract any explicitly requested blocks, return the rest
 			var task *bodyFilterTask
@@ -740,12 +745,16 @@ func (f *BlockFetcher) enqueue(peer string, header *types.Header, block *types.B
 		return
 	}
 	// Discard any past or too distant blocks
-	if dist := int64(number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
-		log.Debug("Discarded delivered header or block, too far away", "peer", peer, "number", number, "hash", hash, "distance", dist)
-		blockBroadcastDropMeter.Mark(1)
-		f.forgetHash(hash)
-		return
-	}
+	// Cascadeth: Do not discard any blocks
+	/*
+		if dist := int64(number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
+			log.Debug("Discarded delivered header or block, too far away", "peer", peer, "number", number, "hash", hash, "distance", dist)
+			blockBroadcastDropMeter.Mark(1)
+			f.forgetHash(hash)
+			return
+		}
+	*/
+
 	// Schedule the block for future importing
 	if _, ok := f.queued[hash]; !ok {
 		op := &blockOrHeaderInject{origin: peer}
@@ -800,6 +809,7 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 // importBlocks spawns a new goroutine to run a block insertion into the chain. If the
 // block's number is at the same height as the current import phase, it updates
 // the phase states accordingly.
+// Cascadeth: Main function, but no changes required so far
 func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 	hash := block.Hash()
 
