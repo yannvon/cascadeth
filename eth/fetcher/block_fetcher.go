@@ -338,7 +338,7 @@ func (f *BlockFetcher) loop() {
 	defer completeTimer.Stop()
 
 	for {
-		//println("new loop hello")
+		//fmt.Print("new loop")
 
 		// Clean up any expired block fetches
 		// Cascadeth: Really inconvenient for debugging
@@ -352,29 +352,31 @@ func (f *BlockFetcher) loop() {
 		*/
 		// Import any queued blocks that could potentially fit
 		height := f.chainHeight()
+
 		for !f.queue.Empty() {
+
 			op := f.queue.PopItem().(*blockOrHeaderInject)
 			hash := op.hash()
 			if f.queueChangeHook != nil {
 				f.queueChangeHook(hash, false)
 			}
 			// If too high up the chain or phase, continue later
-			// Cascadeth: Not the case, we want all blocks immediately ?
-			// Or do we ? we still need parent to be imported already ?
+			// Cascadeth: In general we accept all orderings into the chain.
+			// For backwards compatibility we keep this check though, as it doesn't hurt.
+			// Cascadeth: Why does removing this code fail so many tests ?
 
-			// Why does removing this code fail so many tests ?
 			number := op.number()
 			if number > height+1 {
-				f.queue.Push(op, -int64(number))
+				f.queue.Push(op, -int64(number)) // Potential culprit -> can create deadlock ? why ?
 				if f.queueChangeHook != nil {
 					f.queueChangeHook(hash, true)
 				}
+				log.Debug("Popped item back to queue since height too low", "op", number, "queue size", f.queue.Size(), "chain height", height)
 				break
 			}
 
 			// Otherwise if fresh and still unknown, try and import
 			// TODO Cascadeth: Don't discard block because its number is too low !
-			// Test effect: One more block of chain B can be imported.
 			// number+maxUncleDist < height) ||
 			if (f.light && f.getHeader(hash) != nil) || (!f.light && f.getBlock(hash) != nil) {
 				f.forgetBlock(hash)
@@ -398,16 +400,19 @@ func (f *BlockFetcher) loop() {
 			// A block was announced, make sure the peer isn't DOSing us
 			blockAnnounceInMeter.Mark(1)
 
-			// TODO Cascadeth: We can remove this limitation
+			// Cascadeth: We can keep this, as too many announces are also bad in cascadeth
 			count := f.announces[notification.origin] + 1
 			if count > hashLimit {
 				log.Debug("Peer exceeded outstanding announces", "peer", notification.origin, "limit", hashLimit)
 				blockAnnounceDOSMeter.Mark(1)
 				break
 			}
+
 			// If we have a valid block number, check that it's potentially useful
-			// Cascadeth: (Sadly) at this stage are numbers are potentially useful
-			// TODO: I imagine we have previously checked if we already know hash ?
+			// Cascadeth: (Sadly) at this stage all numbers are potentially useful
+			// Q: I imagine we have previously checked if we already know hash ? A: YES just below on next line !
+			// Removing this basically says that the sidechains can advance at different speeds.
+
 			/*
 				if notification.number > 0 {
 					if dist := int64(notification.number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
@@ -543,7 +548,6 @@ func (f *BlockFetcher) loop() {
 				hash := header.Hash()
 
 				// Filter fetcher-requested headers from other synchronisation algorithms
-				// Cascadeth test issue FIXME: new header doesn't pass this test
 				if announce := f.fetching[hash]; announce != nil && announce.origin == task.peer && f.fetched[hash] == nil && f.completing[hash] == nil && f.queued[hash] == nil {
 					// If the delivered header does not match the promised number, drop the announcer
 					if header.Number.Uint64() != announce.number {
@@ -682,6 +686,10 @@ func (f *BlockFetcher) loop() {
 					f.enqueue(announce.origin, nil, block)
 				}
 			}
+
+		case <-time.After(100 * time.Millisecond):
+			log.Debug("Dead lock prevention", "queue size", f.queue)
+			// With new changes it can be that queue does not empty immediately, and thus deadlock occurs.
 		}
 	}
 }
@@ -737,15 +745,18 @@ func (f *BlockFetcher) enqueue(peer string, header *types.Header, block *types.B
 		hash, number = block.Hash(), block.NumberU64()
 	}
 	// Ensure the peer isn't DOSing us
+	// Cascadeth: no need to remove block limit, as it is only in terms of blocks currently known by fetcher
 	count := f.queues[peer] + 1
+
 	if count > blockLimit {
 		log.Debug("Discarded delivered header or block, exceeded allowance", "peer", peer, "number", number, "hash", hash, "limit", blockLimit)
 		blockBroadcastDOSMeter.Mark(1)
 		f.forgetHash(hash)
 		return
 	}
+
 	// Discard any past or too distant blocks
-	// Cascadeth: Do not discard any blocks
+	// Cascadeth: Do not discard any blocks, and allow chains to move at different speeds
 	/*
 		if dist := int64(number) - int64(f.chainHeight()); dist < -maxUncleDist || dist > maxQueueDist {
 			log.Debug("Discarded delivered header or block, too far away", "peer", peer, "number", number, "hash", hash, "distance", dist)
@@ -786,7 +797,8 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 		parent := f.getHeader(header.ParentHash)
 		if parent == nil {
 			log.Debug("Unknown parent of propagated header", "peer", peer, "number", header.Number, "hash", hash, "parent", header.ParentHash)
-			return
+			// Cascadeth: accept block even if parent unknown
+			//return
 		}
 		// Validate the header and if something went wrong, drop the peer
 		if err := f.verifyHeader(header); err != nil && err != consensus.ErrFutureBlock {
@@ -822,7 +834,8 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		parent := f.getBlock(block.ParentHash())
 		if parent == nil {
 			log.Debug("Unknown parent of propagated block", "peer", peer, "number", block.Number(), "hash", hash, "parent", block.ParentHash())
-			return
+			// Cascadeth: accept block even if parent unknown
+			//return
 		}
 		// Quickly validate the header and propagate the block if it passes
 		switch err := f.verifyHeader(block.Header()); err {

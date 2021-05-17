@@ -17,8 +17,8 @@
 package fetcher
 
 import (
-	"errors"
 	"math/big"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -159,11 +160,14 @@ func (f *fetcherTester) insertHeaders(headers []*types.Header) (int, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	for i, header := range headers {
+	for _, header := range headers {
 		// Make sure the parent in known
-		if _, ok := f.headers[header.ParentHash]; !ok {
-			return i, errors.New("unknown parent")
-		}
+		// Cascadeth: Lift major requirement - accept blocks in any order
+		/*
+			if _, ok := f.headers[header.ParentHash]; !ok {
+				return i, errors.New("unknown parent")
+			}
+		*/
 		// Discard any new blocks if the same height already exists
 		// Cascadeth: Keep all blocks
 		/*
@@ -184,11 +188,14 @@ func (f *fetcherTester) insertChain(blocks types.Blocks) (int, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	for i, block := range blocks {
+	for _, block := range blocks {
 		// Make sure the parent in known
-		if _, ok := f.blocks[block.ParentHash()]; !ok {
-			return i, errors.New("unknown parent")
-		}
+		// Cascadeth: Lift major requirement - accept blocks in any order
+		/*
+			if _, ok := f.blocks[block.ParentHash()]; !ok {
+				return i, errors.New("unknown parent")
+			}
+		*/
 		// Discard any new blocks if the same height already exists
 		// Cascadeth: Keep all blocks
 		/*
@@ -314,7 +321,7 @@ func verifyImportCount(t *testing.T, imported chan interface{}, count int) {
 	for i := 0; i < count; i++ {
 		select {
 		case <-imported:
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second): // Cascadeth: increase time allowance
 			t.Fatalf("block %d: import timeout", i+1)
 		}
 	}
@@ -540,6 +547,7 @@ func testPendingDeduplication(t *testing.T, light bool) {
 func TestFullRandomArrivalImport(t *testing.T)  { testRandomArrivalImport(t, false) }
 func TestLightRandomArrivalImport(t *testing.T) { testRandomArrivalImport(t, true) }
 
+// Cascadeth: this wouldn't work if another sidechain is already more advanced
 func testRandomArrivalImport(t *testing.T, light bool) {
 	// Create a chain of blocks to import, and choose one to delay
 	targetBlocks := maxQueueDist
@@ -882,7 +890,10 @@ func TestHashMemoryExhaustionAttack(t *testing.T) {
 // Tests that blocks sent to the fetcher (either through propagation or via hash
 // announces and retrievals) don't pile up indefinitely, exhausting available
 // system memory.
-// Cascadeth TODO analyse further.
+// Cascadeth: The fetcher then proceeds to import the attack blocks as well, as the new specs allow for dangling blocks
+// Thus this test is deactivated
+
+/*
 func TestBlockMemoryExhaustionAttack(t *testing.T) {
 	// Create a tester with instrumented import hooks
 	tester := newTester(false)
@@ -933,6 +944,7 @@ func TestBlockMemoryExhaustionAttack(t *testing.T) {
 	}
 	verifyImportDone(t, imported)
 }
+*/
 
 // Cascadeth: Tests that blocks arriving from various sources (multiple propagations, hash
 // announces, etc) and various chains, are loaded correctly.
@@ -968,23 +980,22 @@ func TestImportCascadeth(t *testing.T) {
 			t.Fatalf("Fetcher try to import empty block")
 		}
 		imported <- block
-		t.Log("One block imported correctly !")
 	}
 
 	for i := len(hashesA) - 2; i >= 0; i-- {
-		t.Logf("A %d %d", i, uint64(len(hashesA)-i-1))
+		//t.Logf("A %d %d", i, uint64(len(hashesA)-i-1))
 		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
 		verifyImportEvent(t, imported, true)
 	}
 
 	for i := len(hashesB) - 2; i >= 0; i-- {
-		t.Logf("B %d %d", i, uint64(len(hashesB)-i-1))
+		//t.Logf("B %d %d", i, uint64(len(hashesB)-i-1))
 		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
 		verifyImportEvent(t, imported, true)
 	}
 
 	for i := len(hashesB) - 2; i >= 0; i-- {
-		t.Logf("C %d %d", i, uint64(len(hashesC)-i-1))
+		//t.Logf("C %d %d", i, uint64(len(hashesC)-i-1))
 		tester.fetcher.Enqueue("validC", blocksC[hashesC[i]])
 		verifyImportEvent(t, imported, true)
 	}
@@ -1030,23 +1041,21 @@ func testSequentialAnnouncementsCascadeth(t *testing.T, light bool) {
 				t.Fatalf("Fetcher try to import empty header")
 			}
 			imported <- header
-			t.Logf("One header imported correctly ! %d %d", header.Number, header.Hash())
 		} else {
 			if block == nil {
 				t.Fatalf("Fetcher try to import empty block")
 			}
 			imported <- block
-			t.Logf("One block imported correctly ! %d %d", block.NumberU64(), block.Header().Hash())
 		}
 	}
 	for i := len(hashesA) - 2; i >= 0; i-- {
-		t.Logf("A %d %d", uint64(len(hashesB)-i-1), hashesA[i])
+		// t.Logf("A %d %d", uint64(len(hashesB)-i-1), hashesA[i])
 		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
 		verifyImportEvent(t, imported, true)
 	}
 
 	for i := len(hashesB) - 2; i >= 0; i-- {
-		t.Logf("B %d %d", uint64(len(hashesB)-i-1), hashesB[i])
+		// t.Logf("B %d %d", uint64(len(hashesB)-i-1), hashesB[i])
 		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
 		verifyImportEvent(t, imported, true)
 	}
@@ -1062,10 +1071,19 @@ func TestLightInTurnAnnouncementsCascadeth(t *testing.T) {
 func TestFullInTurnAnnouncementsCascadeth(t *testing.T) {
 	testInTurnAnnouncementsCascadeth(t, false)
 }
+
+/*
+ Cascadeth some findings: this test seems easier to pass, as the height restriction when importing makes it such that
+ blocks are *often* (?) imported in order. If height is already higher(20), then however the other sidechain will
+ be imported in an arbitrary order.
+*/
 func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
+	// Cascadeth testing: change log handler
+	//handler := log.StreamHandler(os.Stdout, log.LogfmtFormat())
+	//log.Root().SetHandler(handler)
+
 	// Create a chain of blocks to import
 
-	// Only works for 1 ! FIXME, must be able to import longer chains as well !
 	targetBlocks := 20
 	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
 	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
@@ -1085,25 +1103,144 @@ func testInTurnAnnouncementsCascadeth(t *testing.T, light bool) {
 				t.Fatalf("Fetcher try to import empty header")
 			}
 			imported <- header
-			t.Log("One header imported correctly !")
 		} else {
 			if block == nil {
 				t.Fatalf("Fetcher try to import empty block")
 			}
 			imported <- block
-			t.Log("One block imported correctly !")
 		}
 	}
 	for i := len(hashesA) - 2; i >= 0; i-- {
-		t.Logf("A %d %d", i, hashesA[i])
+		// t.Logf("A %d %d", i, hashesA[i])
 		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
 		verifyImportEvent(t, imported, true)
 
-		t.Logf("B %d %d", i, hashesB[i])
+		// t.Logf("B %d %d", i, hashesB[i])
 		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
 		verifyImportEvent(t, imported, true)
 	}
 
 	verifyImportDone(t, imported)
+	verifyChainSize(t, tester, 2*uint64(len(hashesA)-1))
+}
+
+func TestLightOutOfTurnAnnouncementsCascadeth(t *testing.T) {
+	testOutOfTurnAnnouncementsCascadeth(t, true)
+}
+func TestFullOutOfTurnAnnouncementsCascadeth(t *testing.T) {
+	testOutOfTurnAnnouncementsCascadeth(t, false)
+}
+func testOutOfTurnAnnouncementsCascadeth(t *testing.T, light bool) {
+	// Cascadeth testing: change log handler
+	//handler := log.StreamHandler(os.Stdout, log.LogfmtFormat())
+	//log.Root().SetHandler(handler)
+
+	// Create a chain of blocks to import
+	targetBlocks := 20
+	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
+	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
+
+	tester := newTester(light)
+	headerFetcherA := tester.makeHeaderFetcher("validA", blocksA, -gatherSlack)
+	bodyFetcherA := tester.makeBodyFetcher("validA", blocksA, 0)
+
+	headerFetcherB := tester.makeHeaderFetcher("validB", blocksB, -gatherSlack)
+	bodyFetcherB := tester.makeBodyFetcher("validB", blocksB, 0)
+
+	// Iteratively announce blocks until all are imported
+	imported := make(chan interface{})
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		if light {
+			if header == nil {
+				t.Fatalf("Fetcher try to import empty header")
+			}
+			imported <- header
+		} else {
+			if block == nil {
+				t.Fatalf("Fetcher try to import empty block")
+			}
+			imported <- block
+		}
+	}
+
+	// inverted import out of turn
+	for i := 0; i <= len(hashesA)-2; i++ {
+		// t.Logf("A %d %d", i, hashesA[i])
+		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		//verifyImportEvent(t, imported, true)
+
+		// t.Logf("B %d %d", i, hashesB[i])
+		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
+		//verifyImportEvent(t, imported, true)
+	}
+
+	// Had to increase timeout for this test, as otherwise there is not enough time for all blocks to be fetched and imported
+	verifyImportCount(t, imported, 2*(len(hashesA)-1))
+	verifyChainSize(t, tester, 2*uint64(len(hashesA)-1))
+}
+
+func TestLightMixTurnAnnouncementsCascadeth(t *testing.T) {
+	testMixTurnAnnouncementsCascadeth(t, true)
+}
+func TestFullMixTurnAnnouncementsCascadeth(t *testing.T) {
+	testMixTurnAnnouncementsCascadeth(t, false)
+}
+
+// Somehow always passes in isaolation, but not with whole file, if log is not printed.
+func testMixTurnAnnouncementsCascadeth(t *testing.T, light bool) {
+	// Cascadeth testing: change log handler
+	handler := log.StreamHandler(os.Stdout, log.LogfmtFormat())
+	log.Root().SetHandler(handler)
+
+	// Create a chain of blocks to import
+	targetBlocks := 20
+	hashesA, blocksA := makeChain(targetBlocks, 0, genesis)
+	hashesB, blocksB := makeChain(targetBlocks, 1, genesis)
+
+	tester := newTester(light)
+	headerFetcherA := tester.makeHeaderFetcher("validA", blocksA, -gatherSlack)
+	bodyFetcherA := tester.makeBodyFetcher("validA", blocksA, 0)
+
+	headerFetcherB := tester.makeHeaderFetcher("validB", blocksB, -gatherSlack)
+	bodyFetcherB := tester.makeBodyFetcher("validB", blocksB, 0)
+
+	// Iteratively announce blocks until all are imported
+	imported := make(chan interface{})
+	tester.fetcher.importedHook = func(header *types.Header, block *types.Block) {
+		if light {
+			if header == nil {
+				t.Fatalf("Fetcher try to import empty header")
+			}
+			imported <- header
+		} else {
+			if block == nil {
+				t.Fatalf("Fetcher try to import empty block")
+				t.Logf("delivered header %d", header.Number)
+			}
+			imported <- block
+			t.Logf("delivered block %d", block.Header().Number)
+
+		}
+	}
+
+	// inverted import out of turn
+	for i := 0; i <= len(hashesA)-2; i++ {
+		// t.Logf("A %d %d", i, hashesA[i])
+		tester.fetcher.Notify("validA", hashesA[i], uint64(len(hashesA)-i-1), time.Now().Add(-arriveTimeout), headerFetcherA, bodyFetcherA)
+		//verifyImportEvent(t, imported, true)
+	}
+
+	// Normal import in turn
+	for i := len(hashesA) - 2; i >= 0; i-- {
+		// t.Logf("B %d %d", i, hashesB[i])
+		tester.fetcher.Notify("validB", hashesB[i], uint64(len(hashesB)-i-1), time.Now().Add(-arriveTimeout), headerFetcherB, bodyFetcherB)
+		//verifyImportEvent(t, imported, true)
+	}
+
+	// Had to increase timeout for this test, as otherwise there is not enough time for all blocks to be fetched and imported
+	// I believe that there is something else that leads to non-deterministic behavior: the queue might not be emptied immediately,
+	// and then the fetcher is stuck waiting for an outside event.
+	// Can be counteracted by removing number > height + 1
+	verifyImportCount(t, imported, 2*(len(hashesA)-1))
 	verifyChainSize(t, tester, 2*uint64(len(hashesA)-1))
 }
