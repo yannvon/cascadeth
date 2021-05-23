@@ -330,6 +330,7 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	}
 
 	// Cascadeth: even though multiple side chains, this does not need to change.
+	// Cascadeth TODO: needs to be adapted if blocks do not have to come in sequence
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}

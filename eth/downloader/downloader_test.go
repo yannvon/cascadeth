@@ -1757,3 +1757,55 @@ func testCheckpointEnforcement(t *testing.T, protocol uint, mode SyncMode) {
 		assertOwnChain(t, tester, chain.len())
 	}
 }
+
+/*
+ * Cascadeth tests
+ */
+
+func TestSynchronisationCascadeth(t *testing.T) { testCanonSyncCascadeth(t, 66, FullSync) }
+
+func testCanonSyncCascadeth(t *testing.T, protocol uint, mode SyncMode) {
+	t.Parallel()
+
+	tester := newTester()
+	defer tester.terminate()
+
+	// Create a small enough block chain to download
+	chain := testChainBase.shorten(blockCacheMaxItems - 15)
+	tester.newPeer("peer", protocol, chain)
+
+	// Synchronise with the peer and make sure all relevant data was retrieved
+	if err := tester.sync("peer", nil, mode); err != nil {
+		t.Fatalf("failed to synchronise blocks: %v", err)
+	}
+	assertOwnChain(t, tester, chain.len())
+}
+
+// Tests that simple synchronization against a forked chain works correctly. In
+// this test common ancestor lookup should *not* be short circuited, and a full
+// binary search should be executed.
+
+func TestForkedSyncCascadeth(t *testing.T) { testForkedSyncCascadeth(t, 66, FullSync) }
+
+func testForkedSyncCascadeth(t *testing.T, protocol uint, mode SyncMode) {
+	t.Parallel()
+
+	tester := newTester()
+	defer tester.terminate()
+
+	chainA := testChainForkLightA.shorten(testChainBase.len() + 80)
+	chainB := testChainForkLightB.shorten(testChainBase.len() + 80)
+	tester.newPeer("fork A", protocol, chainA)
+	tester.newPeer("fork B", protocol, chainB)
+	// Synchronise with the peer and make sure all blocks were retrieved
+	if err := tester.sync("fork A", nil, mode); err != nil {
+		t.Fatalf("failed to synchronise blocks: %v", err)
+	}
+	assertOwnChain(t, tester, chainA.len())
+
+	// Synchronise with the second peer and make sure that fork is pulled too
+	if err := tester.sync("fork B", nil, mode); err != nil {
+		t.Fatalf("failed to synchronise blocks: %v", err)
+	}
+	assertOwnForkedChain(t, tester, testChainBase.len(), []int{chainA.len(), chainB.len()})
+}
