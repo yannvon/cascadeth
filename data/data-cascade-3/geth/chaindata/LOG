@@ -1,0 +1,32 @@
+=============== Mar 30, 2021 (CEST) ===============
+16:51:00.387518 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+16:51:00.405607 db@open opening
+16:51:00.406562 version@stat F·[] S·0B[] Sc·[]
+16:51:00.414474 db@janitor F·2 G·0
+16:51:00.414474 db@open done T·8.8667ms
+16:51:00.421632 db@close closing
+16:51:00.427630 db@close done T·5.9982ms
+=============== Mar 30, 2021 (CEST) ===============
+16:51:32.207789 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+16:51:32.207789 version@stat F·[] S·0B[] Sc·[]
+16:51:32.208297 db@open opening
+16:51:32.208324 journal@recovery F·1
+16:51:32.210402 journal@recovery recovering @1
+16:51:32.219838 memdb@flush created L0@2 N·17 S·1KiB "H\x0e\x19..K9\x1b,v10":"\xa3V\xb3..\x94W],v7"
+16:51:32.219838 version@stat F·[1] S·1KiB[1KiB] Sc·[0.25]
+16:51:32.248259 db@janitor F·3 G·0
+16:51:32.248259 db@open done T·39.9345ms
+16:51:32.255177 db@close closing
+16:51:32.263007 db@close done T·7.8293ms
+=============== Mar 30, 2021 (CEST) ===============
+17:06:25.335467 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+17:06:25.335999 version@stat F·[1] S·1KiB[1KiB] Sc·[0.25]
+17:06:25.335999 db@open opening
+17:06:25.335999 journal@recovery F·1
+17:06:25.336661 journal@recovery recovering @3
+17:06:25.345779 memdb@flush created L0@5 N·1 S·378B "eth..K9\x1b,v19":"eth..K9\x1b,v19"
+17:06:25.345779 version@stat F·[2] S·1KiB[1KiB] Sc·[0.50]
+17:06:25.374157 db@janitor F·4 G·0
+17:06:25.374157 db@open done T·38.1583ms
+17:06:25.380643 db@close closing
+17:06:25.385745 db@close done T·5.102ms
