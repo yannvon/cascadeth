@@ -176,6 +176,9 @@ type LightChain interface {
 	// CurrentHeader retrieves the head header from the local chain.
 	CurrentHeader() *types.Header
 
+	// Cascadeth: CurrentHeaderByValidator retrieves the head header from the given side chain.
+	//CurrentHeaderByValidator(common.Address) *types.Header
+
 	// GetTd returns the total difficulty of a local block.
 	GetTd(common.Hash, uint64) *big.Int
 
@@ -201,6 +204,9 @@ type BlockChain interface {
 
 	// CurrentBlock retrieves the head block from the local chain.
 	CurrentBlock() *types.Block
+
+	// Cascadeth: CurrentHeaderByValidator retrieves the head header from the given side chain.
+	//CurrentHeaderByValidator(common.Address) *types.Header
 
 	// CurrentFastBlock retrieves the head fast block from the local chain.
 	CurrentFastBlock() *types.Block
