@@ -47,3 +47,11 @@ profile.cov
 /dashboard/assets/package-lock.json
 
 **/yarn-error.log
+
+/data/data-cascade-1/geth/
+/data/data-cascade-2/geth/
+/data/data-cascade-3/geth/
+
+/data/data-cascade-3/geth/nodekey
+
+
