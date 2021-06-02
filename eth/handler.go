@@ -131,6 +131,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	if config.EventMux == nil {
 		config.EventMux = new(event.TypeMux) // Nicety initialization for tests
 	}
+
 	h := &handler{
 		networkID:  config.Network,
 		forkFilter: forkid.NewFilter(config.Chain),
@@ -403,9 +404,11 @@ func (h *handler) Start(maxPeers int) {
 	go h.minedBroadcastLoop()
 
 	// start sync handlers
-	h.wg.Add(2)
-	go h.chainSync.loop()
-	go h.txsyncLoop64() // TODO(karalabe): Legacy initial tx echange, drop with eth/64.
+	// Cascadeth 0.1: do not sync (permissioned), all following lines commented out
+	//h.wg.Add(2)
+	//go h.chainSync.loop()
+	//go h.txsyncLoop64() // TODO(karalabe): Legacy initial tx echange, drop with eth/64. Cascadeth: Thus should be ok to drop in any case.
+
 }
 
 func (h *handler) Stop() {
