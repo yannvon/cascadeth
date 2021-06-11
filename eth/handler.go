@@ -245,9 +245,11 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 		return err
 	}
 	// TODO(karalabe): Not sure why this is needed
-	if !h.chainSync.handlePeerEvent(peer) {
-		return p2p.DiscQuitting
-	}
+	// Cascadeth: Not sure either, but it breaks cascadeth, since we have no syncing
+	//if !h.chainSync.handlePeerEvent(peer) {
+	//	return p2p.DiscQuitting
+	//}
+
 	h.peerWG.Add(1)
 	defer h.peerWG.Done()
 
@@ -405,6 +407,8 @@ func (h *handler) Start(maxPeers int) {
 
 	// start sync handlers
 	// Cascadeth 0.1: do not sync (permissioned), all following lines commented out
+	log.Debug("Syncing is disabled.")
+
 	//h.wg.Add(2)
 	//go h.chainSync.loop()
 	//go h.txsyncLoop64() // TODO(karalabe): Legacy initial tx echange, drop with eth/64. Cascadeth: Thus should be ok to drop in any case.
@@ -436,6 +440,8 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)
 
+	log.Debug("The peers are: ", "peers", peers)
+
 	// If propagation is requested, send to a subset of the peer
 	if propagate {
 		// Calculate the TD of the block (it's not imported yet, so block.Td is not valid)
@@ -447,11 +453,12 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 			return
 		}
 		// Send the block to a subset of our peers
-		transfer := peers[:int(math.Sqrt(float64(len(peers))))]
+		//transfer := peers[:int(math.Sqrt(float64(len(peers))))]
+		transfer := peers // Cascadeth: Transfer to all peers
 		for _, peer := range transfer {
 			peer.AsyncSendNewBlock(block, td)
 		}
-		log.Trace("Propagated block", "hash", hash, "recipients", len(transfer), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
+		log.Debug("Propagated block", "hash", hash, "recipients", len(transfer), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
 		return
 	}
 	// Otherwise if the block is indeed in out own chain, announce it
@@ -459,7 +466,7 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 		for _, peer := range peers {
 			peer.AsyncSendNewBlockHash(block)
 		}
-		log.Trace("Announced block", "hash", hash, "recipients", len(peers), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
+		log.Debug("Announced block", "hash", hash, "recipients", len(peers), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
 	}
 }
 
