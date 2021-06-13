@@ -302,16 +302,19 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 		return err
 	}
 	if snap != nil {
+		log.Warn("Cascadeth: snap should not be active")
 		if err := h.downloader.SnapSyncer.Register(snap); err != nil {
 			peer.Log().Error("Failed to register peer in snap syncer", "err", err)
 			return err
 		}
 	}
-	h.chainSync.handlePeerEvent(peer)
+	// Cascadeth: Since chainSync is not running, this seems to block execution, hence removed
+	//h.chainSync.handlePeerEvent(peer)
 
 	// Propagate existing transactions. new transactions appearing
 	// after this will be sent via broadcasts.
-	h.syncTransactions(peer)
+	// Cascadeth: should not be an issue, but won't do much
+	//h.syncTransactions(peer)
 
 	// If we have a trusted CHT, reject all peers below that (avoid fast sync eclipse)
 	if h.checkpointHash != (common.Hash{}) {
@@ -439,8 +442,6 @@ func (h *handler) Stop() {
 func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)
-
-	log.Debug("The peers are: ", "peers", peers)
 
 	// If propagation is requested, send to a subset of the peer
 	if propagate {
