@@ -338,7 +338,6 @@ func (f *BlockFetcher) loop() {
 	defer completeTimer.Stop()
 
 	for {
-		//fmt.Print("new loop")
 
 		// Clean up any expired block fetches
 		// Cascadeth: Really inconvenient for debugging

@@ -287,6 +287,7 @@ func handleNewBlockhashes(backend Backend, msg Decoder, peer *Peer) error {
 }
 
 func handleNewBlock(backend Backend, msg Decoder, peer *Peer) error {
+	log.Debug("Cascadeth: Handle New Block")
 	// Retrieve and decode the propagated block
 	ann := new(NewBlockPacket)
 	if err := msg.Decode(ann); err != nil {

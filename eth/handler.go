@@ -308,7 +308,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 			return err
 		}
 	}
-	// Cascadeth: Since chainSync is not running, this seems to block execution, hence removed
+	// Cascadeth: Permissionned implementation without chain syncing.
 	//h.chainSync.handlePeerEvent(peer)
 
 	// Propagate existing transactions. new transactions appearing
@@ -410,11 +410,13 @@ func (h *handler) Start(maxPeers int) {
 
 	// start sync handlers
 	// Cascadeth 0.1: do not sync (permissioned), all following lines commented out
-	log.Debug("Syncing is disabled.")
+	// Post-debug note: commenting the following lines is a terrible idea, as the fetchers are started there.
 
-	//h.wg.Add(2)
-	//go h.chainSync.loop()
-	//go h.txsyncLoop64() // TODO(karalabe): Legacy initial tx echange, drop with eth/64. Cascadeth: Thus should be ok to drop in any case.
+	//log.Debug("Syncing is disabled.")
+
+	h.wg.Add(2)
+	go h.chainSync.loop()
+	go h.txsyncLoop64() // TODO(karalabe): Legacy initial tx echange, drop with eth/64. Cascadeth: Thus should be ok to drop in any case.
 
 }
 

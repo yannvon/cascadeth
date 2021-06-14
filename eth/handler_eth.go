@@ -63,8 +63,6 @@ func (h *ethHandler) AcceptTxs() bool {
 // message that the handler couldn't consume and serve itself.
 func (h *ethHandler) Handle(peer *eth.Peer, packet eth.Packet) error {
 	// Consume any broadcasts and announces, forwarding the rest to the downloader
-
-	log.Debug("Handle new incoming packet")
 	switch packet := packet.(type) {
 	case *eth.BlockHeadersPacket:
 		return h.handleHeaders(peer, *packet)
@@ -90,7 +88,6 @@ func (h *ethHandler) Handle(peer *eth.Peer, packet eth.Packet) error {
 		return h.handleBlockAnnounces(peer, hashes, numbers)
 
 	case *eth.NewBlockPacket:
-		log.Debug("Received new broadcast block")
 		return h.handleBlockBroadcast(peer, packet.Block, packet.TD)
 
 	case *eth.NewPooledTransactionHashesPacket:
@@ -215,7 +212,8 @@ func (h *ethHandler) handleBlockBroadcast(peer *eth.Peer, block *types.Block, td
 	// Update the peer's total difficulty if better than the previous
 	if _, td := peer.Head(); trueTD.Cmp(td) > 0 {
 		peer.SetHead(trueHead, trueTD)
-		h.chainSync.handlePeerEvent(peer)
+		// Cascadeth: Remove syncing for now (permissioned)
+		// h.chainSync.handlePeerEvent(peer)
 	}
 	return nil
 }
