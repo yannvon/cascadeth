@@ -7,6 +7,7 @@ This document shall outline the inner workings of *cascadeth*, a client supporti
 - [ ] Find most convenient mapping between eth and cascade. (change both protocols accordingly)
 - [x] Core (blockchain / header chain)
 - [x] Consensus (creating, signing & verifying blocks)
+- [ ] Try starting all processes at same time & rely solely on regular propagation -> only need some logging mechanism
 - [ ] Adapting blockchain -> add better sidechain management. (persistance, and more)
 - [ ] Transmission protocol (propagation, fetching & syncing)
 - [ ] Transactions -> can be performed at any time, need to be verified & acknowledged in a block
@@ -41,7 +42,7 @@ This document shall outline the inner workings of *cascadeth*, a client supporti
 
 - 
 
-#### [REJECTED] Option 2a: One blockchain, no keeping track of height, allow out of order block imports
+#### [REJECTED] Option 2a: One blockchain, not keeping track of height, allow out of order block imports
 
 ##### Pro 
 
@@ -229,10 +230,6 @@ There is also an ethHandler and snapHandler, that handle the respective back-end
 
 Synchronises blockchain with a peer, by using downloader package. (depends on SyncMode)
 
-##### Changes
-
-- Disabled
-
 ##### TODO
 
 - skipped for now
@@ -248,6 +245,7 @@ ethHandler implements the eth.Backend interface to handle the various network pa
 - Disabled sync
 - Allow broadcast of all blocks to full set of peers, not subset.
 - More debug messages
+  
 
 ### Package eth
 
@@ -314,12 +312,20 @@ DOS protection also needs to be adapted, as every validator can produce blocks i
 3. Allowed signers/validators are usually read from the (single) block chain, which is hard to do at ceation time. Should engine create sidechains on the go ? 
 4. Sidechains by signer address ? Sidechains by id to seperate them ?  
 
+## Permissioned implementation
+
+Debugging for four days: just commenting out chainSyncer does not work, as block fetcher is spawned from there. However, all call to chainSyncer were disabled in the process of debugging and thus I can run syncer loop without triggering sync. (for now this seems an ok solution.)
+
+This tedious process also allowed me to write better scripts.
+
+Worry about broadcast not satisfying necessary guarantees, however it seems that an announcing mechanism is in place.
+
 
 
 ## TODO
 
 - [ ] Prevent block spamming from malicious validators (DOS attack) ? Are all notifications accepted ? Are all blocks fetched ?
-- [ ] 
+- [ ] Make sure that permissioned system has right security guarantees for broadcast.
 - [ ] 
 
 
@@ -422,10 +428,16 @@ admin.addPeer("enode://01bee8f3e8db6de17801bc7273e4171a5a20a136c23d3962333726811
 }
 ```
 
+### Midterm presentation
 
 
-### Batch script
 
-go install -v ./cmd/geth
-
-geth init --datadir data/data-cascade-3 data/genesis-cascade.json
+1. disco template
+2. intro
+3. problem statement
+4. tldr slide
+   1. cascade
+   2. cascade and ethereum
+   3. details
+5. whats most important
+6. what will be most important, what challenges remain
