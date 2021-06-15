@@ -245,7 +245,6 @@ ethHandler implements the eth.Backend interface to handle the various network pa
 - Disabled sync
 - Allow broadcast of all blocks to full set of peers, not subset.
 - More debug messages
-  
 
 ### Package eth
 
@@ -314,11 +313,34 @@ DOS protection also needs to be adapted, as every validator can produce blocks i
 
 ## Permissioned implementation
 
+### 1.06 to 13.06
+
 Debugging for four days: just commenting out chainSyncer does not work, as block fetcher is spawned from there. However, all call to chainSyncer were disabled in the process of debugging and thus I can run syncer loop without triggering sync. (for now this seems an ok solution.)
 
 This tedious process also allowed me to write better scripts.
 
 Worry about broadcast not satisfying necessary guarantees, however it seems that an announcing mechanism is in place.
+
+### 14.06
+
+Finish debugging of block sending. 
+
+Debug other parts, such that all chains can be imported correctly.
+
+Namely: Make sure that the header is always the local chain. This helps to make sure that the time in which we can seal new blocks is right, and also that we order our blocks correctly. This time I feel like I should try understanding the processes more before debugging.
+
+Can we get rid of unconfirmed blocks and add them immediately to main chain ?
+
+### 15.06
+
+- Add check such that only local blocs can be added to canonical chain :) (this prevents mining stop and other errors)
+- Prevent reorgs from happening (again would mess with local chain)
+- Non mining peer has problem with imports, as own height stays 0.
+  - Cascadeth: We need ordering for permissionless syncing. For permissionless case we actually also need it as cascade acks are to be ordered ! Height is local height, which might be 0 if node is not mining. Thus we need some different mechanism.
+
+
+
+
 
 
 
