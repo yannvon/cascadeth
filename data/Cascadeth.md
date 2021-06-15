@@ -322,6 +322,13 @@ This tedious process also allowed me to write better scripts.
 
 Worry about broadcast not satisfying necessary guarantees, however it seems that an announcing mechanism is in place.
 
+### meeting 10.06
+
+- each process chooses validator for stake, ie all his fund belong to same validator -> can simply be modeled by one node having multiple accounts, very simple !
+- Can we implement a negative balance ? This would be required for us to be able to process confirmed transactions immediately
+- If not, we need to keep them in a buffer and execute them as soon as the funds become available
+- Also, we only confirm transactions for which the funds are available in the local state, this means we need to keep new incoming transaction in buffer until we can ack them when funds become available.
+
 ### 14.06
 
 Finish debugging of block sending. 
