@@ -350,7 +350,7 @@ func (f *BlockFetcher) loop() {
 			}
 		*/
 		// Import any queued blocks that could potentially fit
-		height := f.chainHeight()
+		//height := f.chainHeight()
 
 		for !f.queue.Empty() {
 
@@ -363,15 +363,21 @@ func (f *BlockFetcher) loop() {
 			// Cascadeth: We need ordering for permissionless syncing. For permissionless case we actually also need it
 			// as cascade acks are to be ordered !
 			// Height is local height, which might be 0 if node is not mining. Thus we need some different mechanism.
-			number := op.number()
-			if number > height+1 {
-				f.queue.Push(op, -int64(number)) // Potential culprit -> can create deadlock ? why ?
-				if f.queueChangeHook != nil {
-					f.queueChangeHook(hash, true)
+
+			// TODO Cascadeth: for now we assume that the network/adversary does not reorder packets. This allows non-mining
+			// nodes to import blocks as well.
+			/*
+				number := op.number()
+
+				if number > height+1 {
+					f.queue.Push(op, -int64(number)) // Potential culprit -> can create deadlock ? why ?
+					if f.queueChangeHook != nil {
+						f.queueChangeHook(hash, true)
+					}
+					log.Debug("Popped item back to queue since height too low", "op", number, "queue size", f.queue.Size(), "chain height", height)
+					break
 				}
-				log.Debug("Popped item back to queue since height too low", "op", number, "queue size", f.queue.Size(), "chain height", height)
-				break
-			}
+			*/
 
 			// Otherwise if fresh and still unknown, try and import
 			// TODO Cascadeth: Don't discard block because its number is too low !
@@ -832,8 +838,8 @@ func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 		parent := f.getBlock(block.ParentHash())
 		if parent == nil {
 			log.Debug("Unknown parent of propagated block", "peer", peer, "number", block.Number(), "hash", hash, "parent", block.ParentHash())
-			// Cascadeth: accept block even if parent unknown
-			//return
+			// Cascadeth: changed back to previous: do not accept block if parent unknow
+			return
 		}
 		// Quickly validate the header and propagate the block if it passes
 		switch err := f.verifyHeader(block.Header()); err {

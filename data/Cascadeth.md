@@ -287,7 +287,8 @@ DOS protection also needs to be adapted, as every validator can produce blocks i
 
 - Remove stale block protection
 - Remove block limit from single peer
-- Remove restriction to only import if parent already present ?
+- Remove restriction to only import if parent already present -> No, but completely drop block if parent not present !
+- Allow import of newer blocks (above current, local head) -> this fails most tests (mine included) but allows non-mining nodes to import blocks as well !
 
 ##### go-ethereum problems discovered
 
@@ -338,6 +339,23 @@ Can we get rid of unconfirmed blocks and add them immediately to main chain ?
 - Non mining peer has problem with imports, as own height stays 0.
   - Cascadeth: We need ordering for permissionless syncing. For permissionless case we actually also need it as cascade acks are to be ordered ! Height is local height, which might be 0 if node is not mining. Thus we need some different mechanism.
 
+Known bugs:
+
+- Import if not mining: 
+
+  - Solution short term: Anyone can mine their own blocks for now and thus keep chain growing
+  - Solution mid term: Drop ordering requirement and simply drop out of order packets, they can then later be retrieved through syncing.
+
+- Import of out of order blocks
+
+  - Previously out of order blocks (ie. parent not present) were simply discarded and then imported through sync if needed (or other mechanism? do peers announce blocks through different means ? probably not.). two options
+
+    1) keep in queue and keep track of side chain head to make sure we import it at the right time
+
+    2) discard and either implement sync, or other mechanism.
+
+*I need to understand fetcher better* -> done to the degree that I understand that indeed no ordering is guaranteed.
+
 
 
 
@@ -348,7 +366,8 @@ Can we get rid of unconfirmed blocks and add them immediately to main chain ?
 
 - [ ] Prevent block spamming from malicious validators (DOS attack) ? Are all notifications accepted ? Are all blocks fetched ?
 - [ ] Make sure that permissioned system has right security guarantees for broadcast.
-- [ ] 
+- [ ] Block fetcher: remove ordering check (must not be too much bigger than current head), such that also non-mining nodes can import blocks. (and allow for async network / time drift)
+- [ ] Import out of order blocks, for now we drop them. (either keep them in queue by having head per validator, or have syning)
 
 
 
