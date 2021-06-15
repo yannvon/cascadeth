@@ -360,10 +360,9 @@ func (f *BlockFetcher) loop() {
 				f.queueChangeHook(hash, false)
 			}
 			// If too high up the chain or phase, continue later
-			// Cascadeth: In general we accept all orderings into the chain.
-			// For backwards compatibility we keep this check though, as it doesn't hurt.
-			// Cascadeth: Why does removing this code fail so many tests ?
-
+			// Cascadeth: We need ordering for permissionless syncing. For permissionless case we actually also need it
+			// as cascade acks are to be ordered !
+			// Height is local height, which might be 0 if node is not mining. Thus we need some different mechanism.
 			number := op.number()
 			if number > height+1 {
 				f.queue.Push(op, -int64(number)) // Potential culprit -> can create deadlock ? why ?
@@ -820,7 +819,7 @@ func (f *BlockFetcher) importHeaders(peer string, header *types.Header) {
 // importBlocks spawns a new goroutine to run a block insertion into the chain. If the
 // block's number is at the same height as the current import phase, it updates
 // the phase states accordingly.
-// Cascadeth: Main function, but no changes required so far
+// Cascadeth: One of the main functions, but no changes required so far
 func (f *BlockFetcher) importBlocks(peer string, block *types.Block) {
 	hash := block.Hash()
 

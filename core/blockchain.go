@@ -212,12 +212,14 @@ type BlockChain struct {
 	shouldPreserve     func(*types.Block) bool        // Function used to determine whether should preserve the given block.
 	terminateInsert    func(common.Hash, uint64) bool // Testing hook used to terminate ancient receipt chain insertion.
 	writeLegacyJournal bool                           // Testing flag used to flush the snapshot journal in legacy format.
+
+	etherbase *common.Address // Cascadeth: Needed in order to distinguish local and external blocks (chain management)
 }
 
 // NewBlockChain returns a fully initialised block chain using information
 // available in the database. It initialises the default Ethereum Validator and
 // Processor.
-func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *params.ChainConfig, engine consensus.Engine, vmConfig vm.Config, shouldPreserve func(block *types.Block) bool, txLookupLimit *uint64) (*BlockChain, error) {
+func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *params.ChainConfig, engine consensus.Engine, vmConfig vm.Config, shouldPreserve func(block *types.Block) bool, txLookupLimit *uint64, etherbase ...*common.Address) (*BlockChain, error) {
 	if cacheConfig == nil {
 		cacheConfig = defaultCacheConfig
 	}
@@ -227,6 +229,15 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	blockCache, _ := lru.New(blockCacheLimit)
 	txLookupCache, _ := lru.New(txLookupCacheLimit)
 	futureBlocks, _ := lru.New(maxFutureBlocks)
+
+	// Cascadeth: Add etherbase as pseudo optional argument (since Golang does not support default values)
+	// A missing argument will keep behavior the same as before
+	var coinbase *common.Address
+	if len(etherbase) == 1 {
+		coinbase = etherbase[0]
+	} else {
+		coinbase = nil
+	}
 
 	bc := &BlockChain{
 		chainConfig: chainConfig,
@@ -248,6 +259,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		futureBlocks:   futureBlocks,
 		engine:         engine,
 		vmConfig:       vmConfig,
+		etherbase:      coinbase,
 	}
 	bc.validator = NewBlockValidator(chainConfig, bc, engine)
 	bc.prefetcher = newStatePrefetcher(chainConfig, bc, engine)
@@ -1496,6 +1508,9 @@ func (bc *BlockChain) writeBlockWithoutState(block *types.Block, td *big.Int) (e
 // writeKnownBlock updates the head block flag with a known block
 // and introduces chain reorg if necessary.
 func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
+	// Cascadeth: Special warning since I haven't looked at this special case yet
+	// Reorg and writeHeadBlock are both problematic for cascadeth functioning
+	log.Error("Cascadeth: writeKnown block was called, unexpected behavior.")
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1505,6 +1520,7 @@ func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 			return err
 		}
 	}
+	// TODO Cascadeth: Do I need to limit writing head here as well ?
 	bc.writeHeadBlock(block)
 	return nil
 }
@@ -1624,19 +1640,36 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	}
 	if reorg {
 		// Reorganise the chain if the parent is not the head block
+		// Cascadeth: Reorganizing chain is prohibited (local chain is always canonical)
 		if block.ParentHash() != currentBlock.Hash() {
-			if err := bc.reorg(currentBlock, block); err != nil {
-				return NonStatTy, err
-			}
+			log.Debug("Cascadeth: Reorg was prevented.")
+			//if err := bc.reorg(currentBlock, block); err != nil {
+			//	return NonStatTy, err
+			//}
 		}
 		status = CanonStatTy
 	} else {
 		status = SideStatTy
 	}
-	// Set new head.
-	if status == CanonStatTy {
+	// Set new head. Cascadeth: Replicate same behavior as before if no etherbase given.
+	if bc.etherbase == nil && status == CanonStatTy {
 		bc.writeHeadBlock(block)
 	}
+
+	// Cascadeth: Only write head block if the block is local. This ensures that new blocks are mined in local order.
+	// (Also makes sure that mining is not halted if newer block is received from peer)
+	// FIXME this can have far reaching and surprising consequences. Much testing is needed.
+	author, err := bc.Engine().Author(block.Header())
+	log.Debug("Checking whether inserted block is local.", "block author", author, "chain etherbase", *bc.etherbase)
+	if err != nil {
+		log.Warn("Cascadeth: Error occured while computing block author during insertion.")
+	} else if bc.etherbase != nil && status == CanonStatTy && *bc.etherbase == author {
+		log.Debug("Block is local: Head block changed.")
+		bc.writeHeadBlock(block)
+	} else {
+		log.Debug("Block is not local: Head block not affected.")
+	}
+
 	bc.futureBlocks.Remove(block.Hash())
 
 	if status == CanonStatTy {
@@ -2145,6 +2178,10 @@ func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (i
 // blocks and inserts them to be part of the new canonical chain and accumulates
 // potential missing transactions and post an event about them.
 func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
+
+	// Cascadeth: Reorg's are forbidden, as the local chain is always canonical
+	log.Error("Reorg should not be called in Cascadeth.")
+
 	var (
 		newChain    types.Blocks
 		oldChain    types.Blocks
