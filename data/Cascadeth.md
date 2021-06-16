@@ -7,7 +7,7 @@ This document shall outline the inner workings of *cascadeth*, a client supporti
 - [ ] Find most convenient mapping between eth and cascade. (change both protocols accordingly)
 - [x] Core (blockchain / header chain)
 - [x] Consensus (creating, signing & verifying blocks)
-- [ ] Try starting all processes at same time & rely solely on regular propagation -> only need some logging mechanism
+- [x] Try starting all processes at same time & rely solely on regular propagation -> only need some logging mechanism
 - [ ] Adapting blockchain -> add better sidechain management. (persistance, and more)
 - [ ] Transmission protocol (propagation, fetching & syncing)
 - [ ] Transactions -> can be performed at any time, need to be verified & acknowledged in a block
@@ -365,7 +365,11 @@ Known bugs:
 
 
 
+### 16.06
 
+- [ ] Test tx broadcast and tx pool status
+- [ ] test whether every miner includes all tx's in their blocks
+- [ ] think about way to handle ack's and unconfirmed tx's
 
 
 
