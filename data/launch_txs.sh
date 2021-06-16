@@ -66,16 +66,18 @@ rm -r "data/data-cascade-3/geth"
 # Also consider doing: https://github.com/ethersphere/eth-utils
 # And: https://eth.wiki/en/concepts/network-status
 
+# Metric can be used by opening http://127.0.0.1:6062/debug/metrics in a browser window
+
 # Start all three nodes
 # trap "kill 0" EXIT # Sometimes kill -9 is needed, why ?
 
 echo "Starting geth nodes."
 # nodiscover breaks a lot of stuff, but with manual adding it should work
-/home/yann/go/bin/geth --datadir data/data-cascade-1 --nodiscover --networkid 15 --port 30303 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth1.ipc --netrestrict 127.0.0.0/24 --unlock 0x78161ecF55Dc59Bd9E9c5C6620c0eb2Ad3b4d555 --password data/pwd1.txt &> data/geth1.log &
+/home/yann/go/bin/geth --datadir data/data-cascade-1 --metrics --metrics.addr 127.0.0.1 --metrics.port 6061 --nodiscover --networkid 15 --port 30303 --http.port 8101 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth1.ipc --netrestrict 127.0.0.0/24 --unlock 0x78161ecF55Dc59Bd9E9c5C6620c0eb2Ad3b4d555 --password data/pwd1.txt &> data/geth1.log &
 node1=$!
-/home/yann/go/bin/geth --datadir data/data-cascade-2 --nodiscover --networkid 15 --port 30304 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth2.ipc --netrestrict 127.0.0.0/24 --unlock 0xBbd5695c790F13b470c44b5950311C8dd24f78E6 --password data/pwd2.txt &> data/geth2.log &
+/home/yann/go/bin/geth --datadir data/data-cascade-2 --metrics --metrics.addr 127.0.0.1 --metrics.port 6062 --nodiscover --networkid 15 --port 30304 --http.port 8102 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth2.ipc --netrestrict 127.0.0.0/24 --unlock 0xBbd5695c790F13b470c44b5950311C8dd24f78E6 --password data/pwd2.txt &> data/geth2.log &
 node2=$!
-/home/yann/go/bin/geth --datadir data/data-cascade-3 --nodiscover --networkid 15 --port 30305 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth3.ipc --netrestrict 127.0.0.0/24 --unlock 0xd33ec91007a63c216b0aa87a6451c72dfe8d3cb2 --password data/pwd3.txt &> data/geth3.log  &
+/home/yann/go/bin/geth --datadir data/data-cascade-3 --metrics --metrics.addr 127.0.0.1 --metrics.port 6063 --nodiscover --networkid 15 --port 30305 --http.port 8103 --syncmode full --verbosity 4 --cache.snapshot 0 --ipcpath geth3.ipc --netrestrict 127.0.0.0/24 --unlock 0xd33ec91007a63c216b0aa87a6451c72dfe8d3cb2 --password data/pwd3.txt &> data/geth3.log  &
 node3=$!
 
 # sleep $init_time
@@ -113,14 +115,14 @@ sleep 4
 
 # Send transactions
 echo "Initiate transactions."
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 2000000000000000000, gas: 100000, gasPrice: 1})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 1000000000000000000, gas: 100000, gasPrice: 1})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 3000000000000000000, gas: 100000, gasPrice: 1})"
+/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 2000000000000000000, gas: 1000000000, gasPrice: 100})"
+/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 1000000000000000000, gas: 1000000000, gasPrice: 100})"
+/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 3000000000000000000, gas: 1000000000, gasPrice: 100})"
 
 
 # Cleanup
 #wait
-sleep 20
+sleep 100
 
 # Check balances
 check_balances_peerview $node1_ipc "peer1 view"

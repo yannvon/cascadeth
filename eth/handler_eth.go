@@ -91,12 +91,15 @@ func (h *ethHandler) Handle(peer *eth.Peer, packet eth.Packet) error {
 		return h.handleBlockBroadcast(peer, packet.Block, packet.TD)
 
 	case *eth.NewPooledTransactionHashesPacket:
+		log.Debug("Cascadeth: New pooled transaction hash packet")
 		return h.txFetcher.Notify(peer.ID(), *packet)
 
 	case *eth.TransactionsPacket:
+		log.Debug("Cascadeth: New transaction packet")
 		return h.txFetcher.Enqueue(peer.ID(), *packet, false)
 
 	case *eth.PooledTransactionsPacket:
+		log.Debug("Cascadeth: New pooled transaction packet")
 		return h.txFetcher.Enqueue(peer.ID(), *packet, true)
 
 	default:

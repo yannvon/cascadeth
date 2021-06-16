@@ -370,6 +370,17 @@ Known bugs:
 - [ ] Test tx broadcast and tx pool status
 - [ ] test whether every miner includes all tx's in their blocks
 - [ ] think about way to handle ack's and unconfirmed tx's
+- [ ] think about how to process transaction
+
+- Transactions are removed from pool once included in one block: not served to other peers anymore
+- work on metrics -> how can we read them? Succeeded !
+- Non-local txs are not accepted because they are underpriced.
+
+### meeting 17.06
+
+- [ ] Broadcast transactions, (ie. make sure they are not removed from pool too early ?) - sounds like a bad idea !
+- [ ] OR read transactions from blocks, and add them to own pool (if not acked yet)
+- [ ] 
 
 
 
