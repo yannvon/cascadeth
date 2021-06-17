@@ -380,9 +380,22 @@ Known bugs:
 
 - [ ] Broadcast transactions, (ie. make sure they are not removed from pool too early ?) - sounds like a bad idea !
 - [ ] OR read transactions from blocks, and add them to own pool (if not acked yet)
-- [ ] 
+
+Conclusion:
+
+- broadcast tx fix -> do not read form block now
+- collect signatures and add to confirmed
+- detach the state from head of local chain 
+
+Either one or two additional data structures to keep unacked and unconfirmed transactions.
 
 
+
+### 17.06
+
+- meeting
+- debugging underpriced transaction error -> gasPrice is in GWei (ie. 10⁹ or more is required, otherwise one can use --gasprice flag)
+- Create new script with debugging option to include node run on VSC.
 
 ## TODO
 
