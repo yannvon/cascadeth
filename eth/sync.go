@@ -208,7 +208,9 @@ func (cs *chainSyncer) loop() {
 
 	for {
 		if op := cs.nextSyncOp(); op != nil {
-			cs.startSync(op)
+			// Cascadeth: Permissioned system first: Prevent sync
+			log.Debug("Syncing prevented in eth/sync.go, not initial sync, but syncer determined a sync would have been required.")
+			//cs.startSync(op)
 		}
 		select {
 		case <-cs.peerEventCh:
