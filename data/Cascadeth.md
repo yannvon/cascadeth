@@ -378,8 +378,9 @@ Known bugs:
 
 ### meeting 17.06
 
-- [ ] Broadcast transactions, (ie. make sure they are not removed from pool too early ?) - sounds like a bad idea !
-- [ ] OR read transactions from blocks, and add them to own pool (if not acked yet)
+Broadcast transactions, (ie. make sure they are not removed from pool too early ?) - sounds like a bad idea !
+
+OR read transactions from blocks, and add them to own pool (if not acked yet)
 
 Conclusion:
 
@@ -397,12 +398,34 @@ Either one or two additional data structures to keep unacked and unconfirmed tra
 - debugging underpriced transaction error -> gasPrice is in GWei (ie. 10⁹ or more is required, otherwise one can use --gasprice flag)
 - Create new script with debugging option to include node run on VSC.
 
+
+
+### 18.06
+
+- [ ] 
+- [x] detatch state from latest local block
+- [ ] 
+
+
+
+- find more occurences of syncing and remove it
+- there are two different processes that can change the state: both insertingChain as well as commiting transactions in local blocks. Thus just changing (sidechain)- state has no effect in our case.
+- Achieving the same outcome with test script with detached state ! Now missing piece is to process/insert every block and not just canonical chain.
+
+
+
+
+
 ## TODO
 
 - [ ] Prevent block spamming from malicious validators (DOS attack) ? Are all notifications accepted ? Are all blocks fetched ?
 - [ ] Make sure that permissioned system has right security guarantees for broadcast.
 - [ ] Block fetcher: remove ordering check (must not be too much bigger than current head), such that also non-mining nodes can import blocks. (and allow for async network / time drift)
 - [ ] Import out of order blocks, for now we drop them. (either keep them in queue by having head per validator, or have syning)
+- [ ] Read transactions from sidechains blocks as well
+- [ ] Make all nodes archive nodes: bc.cacheConfig.TrieDirtyDisabled
+- [ ] Remove transaction rewards for now
+- [ ] Add two datastructures, one for transactions to confirm (txPool?) and one for tx waiting to be processed -> processing needs to check pool and see if new txs can be imported
 
 
 

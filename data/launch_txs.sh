@@ -2,7 +2,7 @@
 
 # variables
 verbosity=5
-debug=1
+debug=0
 
 # Note: Accounts must already be present
 init_time=2
@@ -100,7 +100,10 @@ sleep 1
 enode1=$(/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "admin.nodeInfo.enode")
 enode2=$(/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "admin.nodeInfo.enode")
 enode3=$(/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "admin.nodeInfo.enode")
-enode4=$(/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-4/geth4.ipc --exec "admin.nodeInfo.enode")
+if [ $debug -eq 1 ]
+then
+  enode4=$(/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-4/geth4.ipc --exec "admin.nodeInfo.enode")
+fi
 
 #echo $enode1,$enode2,$enode3
 
@@ -118,7 +121,7 @@ then
   /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-4/geth4.ipc --exec "admin.addPeer($enode3)"
 fi
 
-sleep 5
+sleep 2
 
 # Check balances
 check_balances_peerview $node1_ipc "peer1 view"
