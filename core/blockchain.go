@@ -214,6 +214,8 @@ type BlockChain struct {
 	writeLegacyJournal bool                           // Testing flag used to flush the snapshot journal in legacy format.
 
 	etherbase *common.Address // Cascadeth: Needed in order to distinguish local and external blocks (chain management)
+
+	stateRoot common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -299,6 +301,11 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	if err := bc.loadLastState(); err != nil {
 		return nil, err
 	}
+
+	// Cascadeth: Init state, loadLastState above should have loaded the genesis state.
+	bc.stateRoot = bc.CurrentBlock().Root()
+	log.Debug("Cascadeth: Init stateRoot", "stateRoot", bc.stateRoot)
+
 	// Make sure the state associated with the block is available
 	head := bc.CurrentBlock()
 	if _, err := state.New(head.Root(), bc.stateCache, bc.snaps); err != nil {
@@ -329,6 +336,9 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	}
 	// Ensure that a previous crash in SetHead doesn't leave extra ancients
 	if frozen, err := bc.db.Ancients(); err == nil && frozen > 0 {
+
+		panic("Cascadeth: Initializing chain with ancient data is not supported for now.")
+
 		var (
 			needRewind bool
 			low        uint64
@@ -511,6 +521,7 @@ func (bc *BlockChain) SetHead(head uint64) error {
 //
 // The method returns the block number where the requested root cap was found.
 func (bc *BlockChain) SetHeadBeyondRoot(head uint64, root common.Hash) (uint64, error) {
+	panic("Cascadeth does not implement snap sync and does not support reorgs.")
 	bc.chainmu.Lock()
 	defer bc.chainmu.Unlock()
 
@@ -684,7 +695,7 @@ func (bc *BlockChain) CurrentBlock() *types.Block {
 	return bc.currentBlock.Load().(*types.Block)
 }
 
-// CurrentBlock retrieves the current head block of the canonical chain. The
+// Cascadeth: CurrentBlock retrieves the current head block of the canonical chain. The
 // block is retrieved from the blockchain's internal cache.
 func (bc *BlockChain) CurrentBlockByValidator(validator common.Address) *types.Block {
 	a := bc.currentBlocks[validator]
@@ -714,12 +725,20 @@ func (bc *BlockChain) Processor() Processor {
 
 // State returns a new mutable state based on the current HEAD block.
 func (bc *BlockChain) State() (*state.StateDB, error) {
-	return bc.StateAt(bc.CurrentBlock().Root())
+	// Cascadeth: Return state detached from blocks
+	//return bc.StateAt(bc.CurrentBlock().Root())
+	log.Debug("Blockchain state accessed.")
+	return bc.StateAt(bc.stateRoot)
 }
 
 // StateAt returns a new mutable state based on a particular point in time.
 func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 	return state.New(root, bc.stateCache, bc.snaps)
+}
+
+// Cascadeth: StateRoot returns the hash of the current root of the state.
+func (bc *BlockChain) StateRoot() common.Hash {
+	return bc.stateRoot
 }
 
 // StateCache returns the caching database underpinning the blockchain instance.
@@ -1165,6 +1184,8 @@ type numberHash struct {
 func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts, ancientLimit uint64) (int, error) {
 	// We don't require the chainMu here since we want to maximize the
 	// concurrency of header insertion and receipt insertion.
+	panic("Cascadeth: Receipt chain not supported for now.")
+
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1493,6 +1514,10 @@ var lastWrite uint64
 // but does not write any state. This is used to construct competing side forks
 // up to the point where they exceed the canonical total difficulty.
 func (bc *BlockChain) writeBlockWithoutState(block *types.Block, td *big.Int) (err error) {
+
+	// Cascadeth: This method should not be called anymore, as any block write might change state.
+	log.Warn("Cascadeth: Write block withOUT state!", "block author", block.Header().Hash())
+
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1510,7 +1535,7 @@ func (bc *BlockChain) writeBlockWithoutState(block *types.Block, td *big.Int) (e
 func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 	// Cascadeth: Special warning since I haven't looked at this special case yet
 	// Reorg and writeHeadBlock are both problematic for cascadeth functioning
-	log.Error("Cascadeth: writeKnown block was called, unexpected behavior.")
+	panic("Cascadeth: writeKnownBlock was called, unexpected behavior.")
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1538,6 +1563,12 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool) (status WriteStatus, err error) {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
+
+	// Cascadeth: Keep track of detached state
+	log.Debug("Cascadeth: Write block with state!", "block author", block.Header().Hash())
+	//FIXME Cascadeth, where do I update stateRoot ?
+	bc.stateRoot = state.IntermediateRoot(false)
+	// block.Header.Root() = bc.StateRoot()
 
 	// Calculate the total difficulty of the block
 	ptd := bc.GetTd(block.ParentHash(), block.NumberU64()-1)
@@ -1660,6 +1691,8 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// (Also makes sure that mining is not halted if newer block is received from peer)
 	// FIXME this can have far reaching and surprising consequences. Much testing is needed.
 	author, err := bc.Engine().Author(block.Header())
+	// FIXME use worker.isLocalBlock() instead
+
 	log.Debug("Checking whether inserted block is local.", "block author", author, "chain etherbase", *bc.etherbase)
 	if err != nil {
 		log.Warn("Cascadeth: Error occured while computing block author during insertion.")
@@ -1924,7 +1957,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		if parent == nil {
 			parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 		}
-		statedb, err := state.New(parent.Root, bc.stateCache, bc.snaps)
+		statedb, err := state.New(bc.stateRoot, bc.stateCache, bc.snaps) // Cascadeth: original root becomes last root, before used parent.Root now bc.stateRoot
 		if err != nil {
 			return it.index, err
 		}
@@ -1953,6 +1986,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		substart := time.Now()
 		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
 		if err != nil {
+			log.Debug("Cascadeth: Block processing caused an error.")
 			bc.reportBlock(block, receipts, err)
 			atomic.StoreUint32(&followupInterrupt, 1)
 			return it.index, err
@@ -1971,13 +2005,21 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
 
 		// Validate the state using the default validator
+		// Cascadeth: State can be different at any node and must thus not be validated.
 		substart = time.Now()
-		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
-			bc.reportBlock(block, receipts, err)
-			atomic.StoreUint32(&followupInterrupt, 1)
-			return it.index, err
-		}
+		/*
+			if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
+				bc.reportBlock(block, receipts, err)
+				atomic.StoreUint32(&followupInterrupt, 1)
+				return it.index, err
+			}
+		*/
+
 		proctime := time.Since(start)
+
+		// Cascadeth: Update stateRoot to keep track of current state -> Now done in writeBlockWithState
+		//log.Debug("Cascadeth: state updated")
+		//bc.stateRoot = statedb.IntermediateRoot(false) // Taken from clique Finalize() (boolean comes from a fork, but all forks are set to 0 here)
 
 		// Update the metrics touched during block validation
 		accountHashTimer.Update(statedb.AccountHashes) // Account hashes are complete, we can mark them
@@ -2058,6 +2100,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 // The method writes all (header-and-body-valid) blocks to disk, then tries to
 // switch over to the new chain if the TD exceeded the current chain.
 func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (int, error) {
+	panic("Cascadeth: InsertSideChain was called. Shouldn't happen anymore.")
 	var (
 		externTd *big.Int
 		current  = bc.CurrentBlock()
@@ -2477,6 +2520,7 @@ Error: %v
 // of the header retrieval mechanisms already need to verify nonces, as well as
 // because nonces can be verified sparsely, not needing to check each.
 func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
+	panic("Attempted insert into HeaderChain. Cascadeth only supports full sync.")
 	start := time.Now()
 	if i, err := bc.hc.ValidateHeaderChain(chain, checkFreq); err != nil {
 		return i, err

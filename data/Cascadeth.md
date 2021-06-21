@@ -412,7 +412,20 @@ Either one or two additional data structures to keep unacked and unconfirmed tra
 - there are two different processes that can change the state: both insertingChain as well as commiting transactions in local blocks. Thus just changing (sidechain)- state has no effect in our case.
 - Achieving the same outcome with test script with detached state ! Now missing piece is to process/insert every block and not just canonical chain.
 
+### 20.06
 
+- [x] debug node3, why not consistent state ?
+  - [ ] State is read from currentHead and not state accessor. -> same is true for EVM context , receipts etc.
+  - [ ] Solution: Update currentHead every time and keep different chain for local block creation ?
+- [ ] prevent insert into sidechain
+
+- execution of launch_tx.sh script is successful, ie. returns result as expected !! However, just a subset of all eth functionality of course, hence question on how much I should change/support.
+
+### 21.06
+
+- [ ] remove tx reward: actually there are no block rewards but tx fees are distributed to block
+- [ ] prevent insert into sidechain
+- [ ] 
 
 
 

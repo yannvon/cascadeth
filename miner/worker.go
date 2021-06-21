@@ -647,7 +647,9 @@ func (w *worker) resultLoop() {
 func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	// Retrieve the parent state to execute on top and start a prefetcher for
 	// the miner to speed block sealing up a bit
-	state, err := w.chain.StateAt(parent.Root())
+
+	// Cascadeth: instead of using parent.Root(), use detached state root.
+	state, err := w.chain.StateAt(w.chain.StateRoot())
 	if err != nil {
 		return err
 	}
@@ -994,6 +996,9 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 	receipts := copyReceipts(w.current.receipts)
 	s := w.current.state.Copy()
 	block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+
+	// Cascadeth: Where shall I update chain state ? For now done in WriteBlockWithState()
+
 	if err != nil {
 		return err
 	}
