@@ -432,6 +432,9 @@ Either one or two additional data structures to keep unacked and unconfirmed tra
 - [ ] how to include txPool into Processor ? (part of blockchain ?)
 - [ ] allow txPool to receive tx multiple times and increase weight of ack accordingly
 - [ ] do not immediately process transactions once added to block -> instead check if processable isn't empty both when creating block and when receiving block
+- [ ] implement a tx_list that sorts tx by weight of acks.
+
+- can we go negative balance ? (temporarily, we have the guarantee that eventually the person will be positive again !) technically state_object account has balance of type big.Int, hence it could be possible to go negative ! :)
 
 ## Proof of stake
 
