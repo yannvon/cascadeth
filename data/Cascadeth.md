@@ -423,9 +423,23 @@ Either one or two additional data structures to keep unacked and unconfirmed tra
 
 ### 21.06
 
-- [ ] remove tx reward: actually there are no block rewards but tx fees are distributed to block
+- [x] remove tx reward: actually there are no block rewards but tx fees are distributed to block
 - [ ] prevent insert into sidechain
-- [ ] 
+
+### 22.06
+
+- [ ] upgrade txPool to hold unconfirmed and processable transactions
+- [ ] how to include txPool into Processor ? (part of blockchain ?)
+- [ ] allow txPool to receive tx multiple times and increase weight of ack accordingly
+- [ ] do not immediately process transactions once added to block -> instead check if processable isn't empty both when creating block and when receiving block
+
+## Proof of stake
+
+txPool has all transactions that have not been acked yet. For now only received through broadcast, later also added from block processing.
+
+ackPool has all transactions that have at least one acknowledgement, and the corresponding weight of those acks. -> Proof of stake riority queue, where weight of acks is priority ? 
+
+
 
 
 
