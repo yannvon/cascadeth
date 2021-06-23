@@ -440,11 +440,32 @@ Either one or two additional data structures to keep unacked and unconfirmed tra
 
 txPool has all transactions that have not been acked yet. For now only received through broadcast, later also added from block processing.
 
-ackPool has all transactions that have at least one acknowledgement, and the corresponding weight of those acks. -> Proof of stake riority queue, where weight of acks is priority ? 
+ackPool has all transactions that have at least one acknowledgement, and the corresponding weight of those acks. -> Proof of stake priority queue, where weight of acks is priority ? 
 
 
 
+#### How do we coordinate the collection of acks?
 
+<img src="eth_backend.png" style="zoom:20%;" />
+
+
+
+#### ackList data structure
+
+Worked on briefly but skipped in favor of simpler data structure for now.
+
+<img src="unconfirmed_datastructure.png" style="zoom:20%;" />
+
+
+
+### 23.06
+
+- For some reason even non-mining nodes are "mining"/executing incoming transactions.
+- Mining nodes are executing same transaction multiple times if it does not pass the first time ?
+- Why does even node 3 do mining ?? / executing transactions without processing received blocks
+  - YES even if not mining the worker mainLoop commits transactions to the pending state
+  - SOLUTION: Add stake only according to local weight
+  - ISSUE: transactions are mined/commited twice by mining nodes (not through mainloop)
 
 ## TODO
 
