@@ -467,6 +467,42 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - SOLUTION: Add stake only according to local weight
   - ISSUE: transactions are mined/commited twice by mining nodes (not through mainloop)
 
+
+
+### 24.06 
+
+- [ ] Fix double mining problem for mining nodes -> if state did not include first transaction it can actually add them to two blocks, forcing others to process them twice as well. 
+
+  - [ ] Is it simply a data race between transaction pool and miner ? Unlikely, this seems to only be able to happen if transactions were mined by other people ?
+  - [ ] Where does the miner delete txs from pool ? He shifts them or pops them (txs.Shift() / txs.Pop()) after execution. Or "Removed old pending transaction"
+  - [ ] Solution for now: add ack according to local weight only.
+
+- [ ] Fix mining problem for no mining nodes: Why does mainLoop also execute transactions ?
+
+- [ ] Discovered node2 badBlock created after state processing ? Race condition with mining ? (mining processed new transaction inbetween state processing ?
+
+  - [x] start mining with s1 ---------------------- tx1 -----tx2-------------------------------------------- WriteBlockAndState() --- s2
+  - [x] --------------------------------------------------------------- Process s1 --- tx ------------
+  - [x] NO ! Not a race condition ! Simply the fact that in normal chains the chain creator would be careful to not execute the same transaction twice !
+  - [x] Since we mined a different block before, obviously we need to implement checks ourselves to avoid double processing of the same transaction !
+  - [ ] PROBLEM: currentState in txPool might not be up to date and cause those errors !
+  - [ ] transaction validity was always checked against txPool chain state -> currentBlock and not detached stateRoot !
+
+- [ ] Race condition between new mining task taking state -> at the end the state is applied to state before mining. In the meantime other blocks might have been processed !!!!!!!! AAAARRGGGGGH
+
+  - [ ] mining s1 --commit txs  -- addACK-----------------------------wait until seal ---------------------------- s1' (or s1 if unsuccesful) BUT DO NOT UPDATE STATE
+  - [ ] --------------------------------- process block ---- process txs ------ s2 -------------------------------------------------- check for new tx that have enough ack..
+  - [ ] SOLUTION: Mining never changes state !
+  - [ ] FIXME: If mining is last ACK, then we will never process tx. 
+
+- [ ] Race condition causing insertChain to be called ! -> ERRORS AND PANICS ALL AROUND.
+
+- [ ] Mining the same tx over and over until it is part of state -> then we realize error and "Removed old pending transaction"
+
+  
+
+
+
 ## TODO
 
 - [ ] Prevent block spamming from malicious validators (DOS attack) ? Are all notifications accepted ? Are all blocks fetched ?
@@ -477,6 +513,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] Make all nodes archive nodes: bc.cacheConfig.TrieDirtyDisabled
 - [ ] Remove transaction rewards for now
 - [ ] Add two datastructures, one for transactions to confirm (txPool?) and one for tx waiting to be processed -> processing needs to check pool and see if new txs can be imported
+- [ ] Instead of stateRoot and chaning it everywhere, one could imagine updating currentBlock root. (and reverting previous changes)
 
 
 
