@@ -139,7 +139,7 @@ then
 fi
 
 
-sleep 45
+sleep 10
 
 # Send transactions
 echo "Initiate transactions."
@@ -147,7 +147,7 @@ echo "Initiate transactions."
 /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
 /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 3000000000000000000, gas: 21000, gasPrice: 100000000000})"
 
-sleep 45
+sleep 10
 
 check_balances_peerview $node1_ipc "peer1 view"
 check_balances_peerview $node2_ipc "peer2 view"

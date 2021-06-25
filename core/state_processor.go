@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -37,14 +38,16 @@ type StateProcessor struct {
 	config *params.ChainConfig // Chain configuration options
 	bc     *BlockChain         // Canonical block chain
 	engine consensus.Engine    // Consensus engine used for block rewards
+	txpool *TxPool             // Transaction Pool to keep track of confirmed transactions
 }
 
 // NewStateProcessor initialises a new StateProcessor.
-func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
+func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine, txpool *TxPool) *StateProcessor {
 	return &StateProcessor{
 		config: config,
 		bc:     bc,
 		engine: engine,
+		txpool: txpool, // FIXME cascadeth: txpool is nil for all legacy use cases !
 	}
 }
 
@@ -63,10 +66,19 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs  []*types.Log
 		gp       = new(GasPool).AddGas(block.GasLimit())
 	)
+	log.Debug("START - Processing block", "block number", block.Number(), "blockHash", block.Hash())
+
 	// Mutate the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
 	}
+	// Cascadeth: Author is needed
+	author, err := p.engine.Author(block.Header())
+	if err != nil {
+		log.Debug("Cascadeth: block author could not be determined.")
+		return nil, nil, 0, err
+	}
+
 	blockContext := NewEVMBlockContext(header, p.bc, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 	// Iterate over and process the individual transactions
@@ -75,6 +87,18 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, err
 		}
+
+		// Cascadeth: Add ack to txPool and only apply transaction if enough acks received.
+		log.Debug("Cascadeth: applyTransaction (state processing)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
+		confirmed, _ := p.txpool.addAck(tx, author)
+		if !confirmed {
+			log.Debug("Cascadeth: transaction not yet confirmed")
+			continue // FIXME not enough acks found.
+		} else {
+			log.Debug("Cascadeth: transaction confirmed")
+		}
+		// TX was confirmed and can now be processed
+
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
 		if err != nil {
@@ -86,6 +110,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
+	log.Debug("END - Processing block", "block number", block.Number(), "blockHash", block.Hash())
 	return receipts, allLogs, *usedGas, nil
 }
 
@@ -138,11 +163,40 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // and uses the input parameters for its environment. It returns the receipt
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
-func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config, txpools ...*TxPool) (*types.Receipt, error) {
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, err
 	}
+	// Cascadeth: Add ack to txPool and only apply transaction if enough acks received.
+	if len(txpools) == 0 {
+		log.Warn("Cascadeth: ApplyTransaction Legacy mode")
+	} else {
+		log.Debug("Cascadeth: ApplyTransaction Cascadeth mode (mining)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
+
+		txpool := txpools[0]
+		confirmed, _ := txpool.addAck(tx, *author)
+
+		// FIXME Cascadeth: Flag transaction as acked, so that it can be demoted/deleted immediately, as otherwise we would
+		// Keep adding it to our blocks until it appears in state.
+
+		if txpool.acked[tx.Hash()] {
+			receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
+			return receipt, ErrAlreadyKnown // FIXME Acked before
+		}
+
+		txpool.acked[tx.Hash()] = true
+
+		if !confirmed {
+			log.Debug("Cascadeth: transaction not yet confirmed")
+			// FIXME invented receipt to avoid mining multiple times ?
+			receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
+			return receipt, ErrInsufficientFunds // FIXME InsufficientAck
+		} else {
+			log.Debug("Cascadeth: transaction confirmed")
+		}
+	}
+
 	// Create a new context to be used in the EVM environment
 	blockContext := NewEVMBlockContext(header, bc, author)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, config, cfg)

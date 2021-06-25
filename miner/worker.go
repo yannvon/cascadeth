@@ -501,6 +501,7 @@ func (w *worker) mainLoop() {
 				}
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
 				tcount := w.current.tcount
+				log.Debug("Cascadeth: MainLoop is going to commitTransactions.")
 				w.commitTransactions(txset, coinbase, nil)
 				// Only update the snapshot if any new transactons were added
 				// to the pending block
@@ -649,7 +650,7 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	// the miner to speed block sealing up a bit
 
 	// Cascadeth: instead of using parent.Root(), use detached state root.
-	state, err := w.chain.StateAt(w.chain.StateRoot())
+	state, err := w.chain.StateAt(w.chain.StateRoot()) // FIXME  not required in a likelihood. (since mining can't change state anymore)
 	if err != nil {
 		return err
 	}
@@ -738,8 +739,18 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
-	if err != nil {
+	log.Debug("Commit transaction is going to call applytransaction.")
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), w.eth.TxPool())
+
+	if err == core.ErrInsufficientFunds { // FIXME better error
+		// Main case, the transaction could not be applied because of insufficientAcks, but should still be included in blocks
+		w.current.txs = append(w.current.txs, tx)
+		w.current.receipts = append(w.current.receipts, receipt)
+		return nil, nil
+	} else if err == core.ErrAlreadyKnown {
+		log.Debug("Transaction acked before, thus not included anymore.")
+		return nil, err
+	} else if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
@@ -829,6 +840,7 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			w.current.tcount++
+			log.Debug("TX commited, txs shift done.")
 			txs.Shift()
 
 		case errors.Is(err, core.ErrTxTypeNotSupported):
@@ -872,6 +884,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
+	log.Debug("Cascadeth: Commiting new work, generating new sealing tasks.")
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 
@@ -975,12 +988,14 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		}
 	}
 	if len(localTxs) > 0 {
+		log.Debug("Commit local transactions")
 		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
 		if w.commitTransactions(txs, w.coinbase, interrupt) {
 			return
 		}
 	}
 	if len(remoteTxs) > 0 {
+		log.Debug("Commit remote transactions")
 		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
 		if w.commitTransactions(txs, w.coinbase, interrupt) {
 			return

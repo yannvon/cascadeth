@@ -216,6 +216,7 @@ type BlockChain struct {
 	etherbase *common.Address // Cascadeth: Needed in order to distinguish local and external blocks (chain management)
 
 	stateRoot common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
+	txPool    *TxPool     //Cascadeth: reference to txPool
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -265,7 +266,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	}
 	bc.validator = NewBlockValidator(chainConfig, bc, engine)
 	bc.prefetcher = newStatePrefetcher(chainConfig, bc, engine)
-	bc.processor = NewStateProcessor(chainConfig, bc, engine)
+	bc.processor = NewStateProcessor(chainConfig, bc, engine, nil) // FIXME done later since txpool needed
 
 	var err error
 	bc.hc, err = NewHeaderChain(db, chainConfig, engine, bc.insertStopped)
@@ -425,6 +426,17 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		}()
 	}
 	return bc, nil
+}
+
+// Cascadeth: Set txpool after blockchain creation since inter dependencies exist (FIXME)
+func (bc *BlockChain) SetTxPool(txpool *TxPool) error {
+	if txpool == nil {
+		return ErrTxPoolOverflow
+	}
+	bc.txPool = txpool
+	bc.processor = NewStateProcessor(bc.chainConfig, bc, bc.engine, txpool)
+
+	return nil
 }
 
 // GetVMConfig returns the block chain VM config.
@@ -1554,21 +1566,28 @@ func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool) (status WriteStatus, err error) {
 	bc.chainmu.Lock()
 	defer bc.chainmu.Unlock()
-
-	return bc.writeBlockWithState(block, receipts, logs, state, emitHeadEvent)
+	// Cascadeth: Mining tasks can't actually alter detached state (see race condition detected on 24.06)
+	return bc.writeBlockWithState(block, receipts, logs, state, emitHeadEvent, true)
 }
 
 // writeBlockWithState writes the block and all associated state to the database,
 // but is expects the chain mutex to be held.
-func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool) (status WriteStatus, err error) {
+func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool, mining ...bool) (status WriteStatus, err error) {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
-	// Cascadeth: Keep track of detached state
-	log.Debug("Cascadeth: Write block with state!", "block author", block.Header().Hash())
 	//FIXME Cascadeth, where do I update stateRoot ?
-	bc.stateRoot = state.IntermediateRoot(false)
-	// block.Header.Root() = bc.StateRoot()
+	if len(mining) == 0 {
+		beforeRoot := bc.StateRoot()
+		bc.stateRoot = state.IntermediateRoot(false)
+		//block.Header.Root() = bc.StateRoot()
+		// Cascadeth: Keep track of detached state
+		log.Debug("Cascadeth: Write block with state!", "stateRootBefore", beforeRoot, "stateRootNow", bc.stateRoot)
+	} else if mining[0] {
+		log.Debug("Cascadeth: Write block with state! Mining mode: not changing state root ü", "stateRootNow", bc.stateRoot)
+	} else {
+		panic("Unexpected case")
+	}
 
 	// Calculate the total difficulty of the block
 	ptd := bc.GetTd(block.ParentHash(), block.NumberU64()-1)

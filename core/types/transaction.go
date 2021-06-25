@@ -27,6 +27,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -464,8 +465,10 @@ func (t *TransactionsByPriceAndNonce) Shift() {
 	if txs, ok := t.txs[acc]; ok && len(txs) > 0 {
 		t.heads[0], t.txs[acc] = txs[0], txs[1:]
 		heap.Fix(&t.heads, 0)
+		log.Debug("Fixing heap.")
 	} else {
 		heap.Pop(&t.heads)
+		log.Debug("Popping heap head.")
 	}
 }
 

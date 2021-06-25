@@ -66,6 +66,11 @@ func (bc *testBlockChain) StateAt(common.Hash) (*state.StateDB, error) {
 	return bc.statedb, nil
 }
 
+// Cascadeth: Not tested, just added to remove errors
+func (bc *testBlockChain) StateRoot() common.Hash {
+	return bc.statedb.IntermediateRoot(false)
+}
+
 func (bc *testBlockChain) SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription {
 	return bc.chainHeadFeed.Subscribe(ch)
 }

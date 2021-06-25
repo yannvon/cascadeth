@@ -198,7 +198,12 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
 	}
+
+	// Cascdeth: Here one could give genesisHash or state to TxPool for PoS mechanism
+	// Instead, first state update is used as stake state.
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)
+	// Cascadeth: give reference to txpool to blockchain for processor
+	eth.blockchain.SetTxPool(eth.txPool)
 
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit

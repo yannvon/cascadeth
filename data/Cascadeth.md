@@ -476,9 +476,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [ ] Is it simply a data race between transaction pool and miner ? Unlikely, this seems to only be able to happen if transactions were mined by other people ?
   - [ ] Where does the miner delete txs from pool ? He shifts them or pops them (txs.Shift() / txs.Pop()) after execution. Or "Removed old pending transaction"
   - [ ] Solution for now: add ack according to local weight only.
-
 - [ ] Fix mining problem for no mining nodes: Why does mainLoop also execute transactions ?
-
 - [ ] Discovered node2 badBlock created after state processing ? Race condition with mining ? (mining processed new transaction inbetween state processing ?
 
   - [x] start mining with s1 ---------------------- tx1 -----tx2-------------------------------------------- WriteBlockAndState() --- s2
@@ -487,21 +485,33 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [x] Since we mined a different block before, obviously we need to implement checks ourselves to avoid double processing of the same transaction !
   - [ ] PROBLEM: currentState in txPool might not be up to date and cause those errors !
   - [ ] transaction validity was always checked against txPool chain state -> currentBlock and not detached stateRoot !
-
 - [ ] Race condition between new mining task taking state -> at the end the state is applied to state before mining. In the meantime other blocks might have been processed !!!!!!!! AAAARRGGGGGH
 
   - [ ] mining s1 --commit txs  -- addACK-----------------------------wait until seal ---------------------------- s1' (or s1 if unsuccesful) BUT DO NOT UPDATE STATE
   - [ ] --------------------------------- process block ---- process txs ------ s2 -------------------------------------------------- check for new tx that have enough ack..
   - [ ] SOLUTION: Mining never changes state !
   - [ ] FIXME: If mining is last ACK, then we will never process tx. 
-
 - [ ] Race condition causing insertChain to be called ! -> ERRORS AND PANICS ALL AROUND.
-
 - [ ] Mining the same tx over and over until it is part of state -> then we realize error and "Removed old pending transaction"
 
-  
+### 25.06
+
+- [ ] Create list to ack/include tx in block only once -> delete it from pool once acked. 
+  - [ ] Cleaning does not happen quickly (WHEN?)
+  - [ ] if we do not keep track all acked that are not yet in state, then we add them back to pool when processing new blocks
+- [ ] Improve PoS mechanism: Add ack according to stake ! :)
+  - [x] Store genesis state to query stake ? DONE for now
+  - [x] Querying state by address is easy, but computing total stake in the system is not. 
+  - [x] FOR NOW BAD MAGIC CONSTANT :(
+- [ ] REALISATION: Current system is not safe at all: It doesn't prevent double spending / we acknowledge conflicting transaction, since we don't keep unconfirmed transactions in our state !!
+- [ ] NEW IDEA: Keep two detached states: one with the state we have acked, one with the state that was confirmed universally ! 
 
 
+
+### 26.05
+
+- [ ] Keep two detached states
+- [ ] Give own stake to some validator: How to implement ??
 
 ## TODO
 
@@ -514,6 +524,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] Remove transaction rewards for now
 - [ ] Add two datastructures, one for transactions to confirm (txPool?) and one for tx waiting to be processed -> processing needs to check pool and see if new txs can be imported
 - [ ] Instead of stateRoot and chaning it everywhere, one could imagine updating currentBlock root. (and reverting previous changes)
+- [ ] Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
 
 
 

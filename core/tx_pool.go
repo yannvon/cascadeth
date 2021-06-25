@@ -133,6 +133,7 @@ type blockChain interface {
 	CurrentBlock() *types.Block
 	GetBlock(hash common.Hash, number uint64) *types.Block
 	StateAt(root common.Hash) (*state.StateDB, error)
+	StateRoot() common.Hash
 
 	SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription
 }
@@ -214,10 +215,16 @@ func (config *TxPoolConfig) sanitize() TxPoolConfig {
 // TxPool contains all currently known transactions. Transactions
 // enter the pool when they are received from the network or submitted
 // locally. They exit the pool when they are included in the blockchain.
+// Cascadeth: They can also be added when seen in a different block, and only
+// leave once enough acks are received.
 //
 // The pool separates processable transactions (which can be applied to the
 // current state) and future transactions. Transactions move between those
 // two states over time as they are received and processed.
+// Cascadeth: The pool now has a further seperation of unconfirmed transactions,
+// which are reserved for transactions that can be applied to the state but
+// haven't received enough acks yet, and transactions that do have enough acks
+// but can't be applied to state because of insufficient funds.
 type TxPool struct {
 	config      TxPoolConfig
 	chainconfig *params.ChainConfig
@@ -231,18 +238,22 @@ type TxPool struct {
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
 
-	currentState  *state.StateDB // Current state in the blockchain head
+	currentState  *state.StateDB // Current state in the blockchain head	// Cascadeth FIXME, is this up to date ?
+	stakeState    *state.StateDB // Cascadeth: Current state of stake, used for PoS
 	pendingNonces *txNoncer      // Pending state tracking virtual nonces
 	currentMaxGas uint64         // Current gas limit for transaction caps
 
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	pending map[common.Address]*txList   // All currently processable transactions
-	queue   map[common.Address]*txList   // Queued but non-processable transactions
-	beats   map[common.Address]time.Time // Last heartbeat from each known account
-	all     *txLookup                    // All transactions to allow lookups
-	priced  *txPricedList                // All transactions sorted by price
+	confirmed   map[common.Address]*txList                  // All confirmed transactions FIXME not used yet
+	unconfirmed map[common.Hash]map[common.Address]*big.Int // All unconfirmed transactions FIXME simplified version
+	acked       map[common.Hash]bool                        // All transactions acked already (can be deleted/demoted) FIXME make it more efficient/clean (like Forward)
+	pending     map[common.Address]*txList                  // All currently processable transactions
+	queue       map[common.Address]*txList                  // Queued but non-processable transactions
+	beats       map[common.Address]time.Time                // Last heartbeat from each known account
+	all         *txLookup                                   // All transactions to allow lookups
+	priced      *txPricedList                               // All transactions sorted by price
 
 	chainHeadCh     chan ChainHeadEvent
 	chainHeadSub    event.Subscription
@@ -270,6 +281,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chainconfig:     chainconfig,
 		chain:           chain,
 		signer:          types.LatestSigner(chainconfig),
+		confirmed:       make(map[common.Address]*txList),
+		unconfirmed:     make(map[common.Hash]map[common.Address]*big.Int),
+		acked:           make(map[common.Hash]bool),
 		pending:         make(map[common.Address]*txList),
 		queue:           make(map[common.Address]*txList),
 		beats:           make(map[common.Address]time.Time),
@@ -496,6 +510,38 @@ func (pool *TxPool) Pending() (map[common.Address]types.Transactions, error) {
 	return pending, nil
 }
 
+// Unconfirmed retrieves all transactions currently waiting for more acks, grouped by origin
+// account and sorted by nonce. The returned transaction set is a copy and can be
+// freely modified by calling code.
+// FIXME grouped by ammount/weight of acks ?
+/*
+func (pool *TxPool) Unconfirmed() (map[common.Address]types.Transactions, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	unconfirmed := make(map[common.Address]types.Transactions)
+	for addr, list := range pool.unconfirmed {
+		unconfirmed[addr] = list.Flatten()
+	}
+	return unconfirmed, nil
+}
+*/
+
+// Unconfirmed retrieves all transactions currently waiting for more acks, grouped by origin
+// account and sorted by nonce. The returned transaction set is a copy and can be
+// freely modified by calling code.
+// FIXME grouped by ammount/weight of acks ?
+func (pool *TxPool) Confirmed() (map[common.Address]types.Transactions, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	confirmed := make(map[common.Address]types.Transactions)
+	for addr, list := range pool.confirmed {
+		confirmed[addr] = list.Flatten()
+	}
+	return confirmed, nil
+}
+
 // Locals retrieves the accounts currently considered local by the pool.
 func (pool *TxPool) Locals() []common.Address {
 	pool.mu.Lock()
@@ -665,6 +711,129 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	return replaced, nil
 }
 
+// add validates a transaction and inserts it into the non-executable queue for later
+// pending promotion and execution. If the transaction is a replacement for an already
+// pending or queued one, it overwrites the previous transaction if its price is higher.
+//
+// If a newly added transaction is marked as local, its sending account will be
+// whitelisted, preventing any associated transaction from being dropped out of the pool
+// due to pricing constraints.
+func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address) (confirmed bool, err error) {
+
+	isLocal := false
+	hash := tx.Hash()
+
+	// If the transaction fails basic validation, discard it
+	// Cascadeth: It could also be an ack for a tx we have already confirmed, either way we can discard it
+	if err := pool.validateTx(tx, isLocal); err != nil {
+		log.Trace("Discarding invalid or old ack for transaction", "hash", hash, "err", err)
+		// invalidTxMeter.Mark(1)
+		return false, err
+	}
+
+	// If the transaction is not known, add it to queue, to then ack ourself.
+	if pool.all.Get(hash) == nil && !pool.acked[hash] {
+		log.Warn("Cascadeth: New transaction discovered in block. Should not happen for now.", "hash", hash)
+		pool.add(tx, false) // Tx that we learn from blocks can't be local
+	}
+
+	// If the transaction pool is full, discard underpriced transactions
+	// FIXME Cascadeth: Removed for quicker implementation -> add back later (see function above)
+
+	// Add ack/tx in the unconfirmed pool
+	//from, _ := types.Sender(pool.signer, tx) // already validated
+	//if list := pool.unconfirmed[from]; list != nil && list.Overlaps(tx) {
+	acklist := pool.unconfirmed[hash]
+
+	if acklist != nil {
+		n_acks := len(acklist)
+
+		// Nonce already pending, check if required price bump is met
+		log.Debug("Cascadeth: Ack inserted for existing tx", "n_acks", n_acks)
+		/*
+			inserted, old := list.Add(tx, pool.config.PriceBump)
+			if !inserted {
+				pendingDiscardMeter.Mark(1)
+				return false, ErrReplaceUnderpriced
+			}
+			// New transaction is better, replace old one
+			if old != nil {
+				pool.all.Remove(old.Hash())
+				pool.priced.Removed(1)
+				pendingReplaceMeter.Mark(1)
+			}
+			pool.all.Add(tx, isLocal)
+			pool.priced.Put(tx, isLocal)
+			pool.journalTx(from, tx)
+			pool.queueTxEvent(tx)
+			log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
+
+			// Successful promotion, bump the heartbeat
+			pool.beats[from] = time.Now()
+			return old != nil, nil
+		*/
+		sum := new(big.Int)
+		for _, i := range pool.unconfirmed[hash] {
+			sum.Add(sum, i)
+		}
+
+		if sum.Cmp(new(big.Int).SetUint64(4000000000000000000)) > 0 {
+			log.Warn("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before")
+			return false, nil
+		}
+	} else {
+		log.Debug("Cascadeth: Ack for new tx encountered.")
+		acklist = make(map[common.Address]*big.Int)
+	}
+	// New transaction isn't replacing a pending one, push into queue
+	// FIXME push into unconfirmed
+	/*
+		replaced, err = pool.enqueueTx(hash, tx, isLocal, true)
+		if err != nil {
+			return false, err
+		}
+	*/
+	// In any case augment weight
+	if acklist[ackOrigin] == nil {
+
+		ackValue := pool.stakeState.GetBalance(ackOrigin)
+		log.Debug("Ack received.", "value", ackValue, "txhash", hash, "ackOrigin", ackOrigin)
+		acklist[ackOrigin] = ackValue
+		pool.unconfirmed[hash] = acklist
+	}
+
+	// Compute weight of all acks received so far
+	sum := new(big.Int)
+	for _, i := range pool.unconfirmed[hash] {
+		sum.Add(sum, i)
+	}
+
+	// If 2/3 of stake has acked, then tx is confirmed.
+	if sum.Cmp(new(big.Int).SetUint64(4000000000000000000)) > 0 {
+		return true, nil
+	} else {
+		return false, nil
+	}
+
+	// Mark local addresses and journal local transactions
+	/*
+		if local && !pool.locals.contains(from) {
+			log.Info("Setting new local account", "address", from)
+			pool.locals.add(from)
+			pool.priced.Removed(pool.all.RemoteToLocals(pool.locals)) // Migrate the remotes if it's marked as local first time.
+		}
+		if isLocal {
+			localGauge.Inc(1)
+		}
+		pool.journalTx(from, tx)
+
+		log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
+		return replaced, nil
+
+	*/
+	//return true, nil
+}
+
 // enqueueTx inserts a new transaction into the non-executable transaction queue.
 //
 // Note, this method assumes the pool lock is held!
@@ -800,6 +969,7 @@ func (pool *TxPool) AddRemote(tx *types.Transaction) error {
 
 // addTxs attempts to queue a batch of transactions if they are valid.
 func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
+	log.Debug("Adding transaction to txpool")
 	// Filter out known ones without obtaining the pool lock or recovering signatures
 	var (
 		errs = make([]error, len(txs))
@@ -963,6 +1133,7 @@ func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) c
 // requestPromoteExecutables requests transaction promotion checks for the given addresses.
 // The returned channel is closed when the promotion checks have occurred.
 func (pool *TxPool) requestPromoteExecutables(set *accountSet) chan struct{} {
+	log.Debug("RequestPromoteExecutables")
 	select {
 	case pool.reqPromoteCh <- set:
 		return <-pool.reorgDoneCh
@@ -1187,10 +1358,17 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	if newHead == nil {
 		newHead = pool.chain.CurrentBlock().Header() // Special case during testing
 	}
-	statedb, err := pool.chain.StateAt(newHead.Root)
+	statedb, err := pool.chain.StateAt(pool.chain.StateRoot()) // Cascadeth: FIXME add currentState root to currentBlock?
 	if err != nil {
 		log.Error("Failed to reset txpool state", "err", err)
 		return
+	}
+
+	// Cascadeth: Take the first state as stake state (for now)
+	if pool.stakeState == nil {
+		pool.stakeState = statedb
+
+		//totalStake := statedb.AccountHashes
 	}
 	pool.currentState = statedb
 	pool.pendingNonces = newTxNoncer(statedb)
@@ -1412,6 +1590,17 @@ func (pool *TxPool) demoteUnexecutables() {
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
+
+		// Cascadeth: Drop all transactions that we have included in a block before
+		for _, tx := range list.txs.items {
+			hash := tx.Hash()
+			if pool.acked[hash] {
+				pool.all.Remove(hash)
+				log.Trace("Cascadeth: Removed pending transaction that was already acked.", "hash", hash)
+				// FIXME Cascadeth: We need better implementation
+				// At the very least garbage collect acked set, after a while (if we delete from acked immediately, will it be added again ?)
+			}
+		}
 
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)
