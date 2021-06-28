@@ -90,7 +90,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 		// Cascadeth: Add ack to txPool and only apply transaction if enough acks received.
 		log.Debug("Cascadeth: applyTransaction (state processing)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
-		confirmed, _ := p.txpool.addAck(tx, author)
+		confirmed, _ := p.txpool.addAck(tx, author, false)
 		if !confirmed {
 			log.Debug("Cascadeth: transaction not yet confirmed")
 			continue // FIXME not enough acks found.
@@ -175,25 +175,26 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		log.Debug("Cascadeth: ApplyTransaction Cascadeth mode (mining)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
 
 		txpool := txpools[0]
-		confirmed, _ := txpool.addAck(tx, *author)
+		confirmed, _ := txpool.addAck(tx, *author, true)
 
 		// FIXME Cascadeth: Flag transaction as acked, so that it can be demoted/deleted immediately, as otherwise we would
 		// Keep adding it to our blocks until it appears in state.
+		/*
+			if txpool.acked[tx.Hash()] {
+				receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
+				return receipt, ErrAlreadyKnown // FIXME Acked before
+			}
 
-		if txpool.acked[tx.Hash()] {
-			receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
-			return receipt, ErrAlreadyKnown // FIXME Acked before
-		}
-
-		txpool.acked[tx.Hash()] = true
+			txpool.acked[tx.Hash()] = true
+		*/
 
 		if !confirmed {
-			log.Debug("Cascadeth: transaction not yet confirmed")
+			log.Debug("Cascadeth: transaction not yet confirmed, but applying changes to ackState /currentState of txPool.")
 			// FIXME invented receipt to avoid mining multiple times ?
-			receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
-			return receipt, ErrInsufficientFunds // FIXME InsufficientAck
+			//receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
+			// return receipt, ErrInsufficientFunds // FIXME InsufficientAck
 		} else {
-			log.Debug("Cascadeth: transaction confirmed")
+			log.Debug("Cascadeth: transaction confirmed, but still only applied to ackState.. FIXME")
 		}
 	}
 

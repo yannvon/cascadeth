@@ -508,10 +508,49 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 
 
-### 26.05
+### 26.06
 
-- [ ] Keep two detached states
+- [x] Keep two detached states !
+  - [x] One for acknowledging and one with confirmed transactions
+  - [x] Mining changes only ackState, while confirmed transaction changes currentState/stateRoot
+  - [x] Change: we now need that unacked transactions still influence ackState ! :)
+  - [ ] TODO for cornercase where the last ack we receive is our own mining, we need different mechanism to the include newly confirmed transaction in currentState as well, as otherwise we would just skip it !
+  - [x] This prevents double spending / acking a doublespend transaction, which previously was not the case
+  - [ ] It also makes acked HashSet useles !!
+  - [x] FIXME need to validate new acks with currentState and not ackState ..
+  - [ ] TODO new test script / unit test.
+  - [ ] WHAT about insufficient balances ?
+  - [ ] TODO in txPool we need **ackPendingInsufficientBalance** buffer, as well as **confirmedPendingInsufficientBalanced** and **confirmedPendingByMining** 
 - [ ] Give own stake to some validator: How to implement ??
+
+### 27.06
+
+- [x] Remove useless acked HashSet
+- [ ] meeting
+
+### meeting 27.6
+
+- [ ] First currency with PoS !
+- [ ] Detached state
+- [ ] data structure for unconfirmed transactions -> show diagrams
+- [ ] Read stake from genesis using the genesis root hash to access db.
+- [ ] Fixing many bugs were transactions were acked multiple times -> acked Hash set first, but then currentState
+- [ ] Many race conditions had to be fixed -> mining blocks in parallel of receiving new transactions -> might get lost ! thus now two states
+- [ ] Verify main validation idea with two different states
+- [ ] TODO
+  - [ ] Read total stake adaptively
+  - [ ] New test script / golang tests 
+  - [ ] Cornercase where last ack is our own mining 
+  - [ ] Insufficient balances: txPool we need **ackPendingInsufficientBalance** buffer, as well as **confirmedPendingInsufficientBalanced** and **confirmedPendingByMining** 
+  - [ ] How to implement delegating stake: Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
+  - [ ] better datastructure for unconfirmed
+  - [ ] race conditions txpool currentState
+
+### Testing scenarios needed
+
+- [ ] Double spend
+- [ ] tx broadcast doesn't work and tx is known through block only
+- [ ] 
 
 ## TODO
 
@@ -528,7 +567,9 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 
 
+#### Additional sections
 
+- Interesting email to Kobi about why local blocks get preferred, and new foreign blocks have 50% chance of being used and causing reorg.
 
 ## Testing
 

@@ -650,7 +650,7 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	// the miner to speed block sealing up a bit
 
 	// Cascadeth: instead of using parent.Root(), use detached state root.
-	state, err := w.chain.StateAt(w.chain.StateRoot()) // FIXME  not required in a likelihood. (since mining can't change state anymore)
+	state, err := w.chain.StateAt(w.chain.AckStateRoot()) // Use AckState to decide which tx can be acked.
 	if err != nil {
 		return err
 	}

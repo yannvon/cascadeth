@@ -215,8 +215,9 @@ type BlockChain struct {
 
 	etherbase *common.Address // Cascadeth: Needed in order to distinguish local and external blocks (chain management)
 
-	stateRoot common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
-	txPool    *TxPool     //Cascadeth: reference to txPool
+	stateRoot    common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
+	ackStateRoot common.Hash // Cascadeth: Use a different state for acknowledging txs
+	txPool       *TxPool     //Cascadeth: reference to txPool
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -305,6 +306,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	// Cascadeth: Init state, loadLastState above should have loaded the genesis state.
 	bc.stateRoot = bc.CurrentBlock().Root()
+	bc.ackStateRoot = bc.CurrentBlock().Root()
 	log.Debug("Cascadeth: Init stateRoot", "stateRoot", bc.stateRoot)
 
 	// Make sure the state associated with the block is available
@@ -751,6 +753,11 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 // Cascadeth: StateRoot returns the hash of the current root of the state.
 func (bc *BlockChain) StateRoot() common.Hash {
 	return bc.stateRoot
+}
+
+// Cascadeth: StateRoot returns the hash of the current root of the state.
+func (bc *BlockChain) AckStateRoot() common.Hash {
+	return bc.ackStateRoot
 }
 
 // StateCache returns the caching database underpinning the blockchain instance.
@@ -1584,7 +1591,10 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		// Cascadeth: Keep track of detached state
 		log.Debug("Cascadeth: Write block with state!", "stateRootBefore", beforeRoot, "stateRootNow", bc.stateRoot)
 	} else if mining[0] {
-		log.Debug("Cascadeth: Write block with state! Mining mode: not changing state root ü", "stateRootNow", bc.stateRoot)
+		beforeRoot := bc.AckStateRoot()
+		bc.ackStateRoot = state.IntermediateRoot(false)
+		// Cascadeth: Keep track of detached ack state
+		log.Debug("Cascadeth: Write block with state! Mining mode: change ackState", "stateRootBefore", beforeRoot, "stateRootNow", bc.ackStateRoot)
 	} else {
 		panic("Unexpected case")
 	}
