@@ -508,7 +508,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 
 
-### 26.06
+### 27.06
 
 - [x] Keep two detached states !
   - [x] One for acknowledging and one with confirmed transactions
@@ -523,12 +523,12 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [ ] TODO in txPool we need **ackPendingInsufficientBalance** buffer, as well as **confirmedPendingInsufficientBalanced** and **confirmedPendingByMining** 
 - [ ] Give own stake to some validator: How to implement ??
 
-### 27.06
+### 28.06
 
 - [x] Remove useless acked HashSet
 - [ ] meeting
 
-### meeting 27.6
+### meeting 28.6
 
 - [ ] First currency with PoS !
 - [ ] Detached state
@@ -540,17 +540,44 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] TODO
   - [ ] Read total stake adaptively
   - [ ] New test script / golang tests 
-  - [ ] Cornercase where last ack is our own mining 
+  - [ ] Cornercase where last ack is our own mining -> Kobi: can we just process it in the same way as a normal block ? :) 
   - [ ] Insufficient balances: txPool we need **ackPendingInsufficientBalance** buffer, as well as **confirmedPendingInsufficientBalanced** and **confirmedPendingByMining** 
   - [ ] How to implement delegating stake: Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
-  - [ ] better datastructure for unconfirmed
+  - [ ] better datastructure for unconfirmed, cleaning it
   - [ ] race conditions txpool currentState
 
 ### Testing scenarios needed
 
 - [ ] Double spend
 - [ ] tx broadcast doesn't work and tx is known through block only
-- [ ] 
+
+### meeting results
+
+- [ ] is db concurrent ?
+- [ ] is processing concurrent ? might something go wrong if two blocks are processed concurrently.
+- [ ] If not we need lock on currentStateRoot.
+- [ ] instead of ackStateRoot -> map with addr to nonce, solves inconsistency of funds problem
+- [ ] might need to go negative, or buffer
+
+#### New TODO POS
+
+- [ ] change ackStateRoot, to map of sender to nonce (maybe containing tx)
+- [ ] clean up unconfirmed once confirmed
+- [ ] treat own blocks in the same way as foreign blocks -> in order to avoid race condition, while also avoiding edge case where our ack is the last ack received
+- [ ] make sure that block processing is either not concurrent, or then use thread safe currentState
+- [ ] Is db concurrent ? make sure we don't write too many useless things
+- [ ] go negative balances or use buffer if confirmed transaction 
+- [ ] read genesis stake sum
+
+### 29.06
+
+- [ ] read genesis stake sum & discover more race conditions
+
+### 30.06
+
+- [ ] Error case if own ack immediately is enough to verify: will never be added to current state (in old model)
+
+
 
 ## TODO
 

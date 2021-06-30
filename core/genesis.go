@@ -44,6 +44,9 @@ import (
 
 var errGenesisNoConfig = errors.New("genesis has no chain configuration")
 
+// Cascadeth
+var TotalStake *big.Int = new(big.Int).SetInt64(3)
+
 // Genesis specifies the header fields, state of a genesis block. It also defines hard
 // fork switch-over blocks through the chain configuration.
 type Genesis struct {
@@ -256,6 +259,10 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 // ToBlock creates the genesis block and writes state of a genesis specification
 // to the given database (or discards it if nil).
 func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
+
+	// Cascadeth
+	TotalStake = new(big.Int)
+
 	if db == nil {
 		db = rawdb.NewMemoryDatabase()
 	}
@@ -266,7 +273,9 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 		statedb.SetNonce(addr, account.Nonce)
 		for key, value := range account.Storage {
 			statedb.SetState(addr, key, value)
+			TotalStake.Add(account.Balance, TotalStake)
 		}
+
 	}
 	root := statedb.IntermediateRoot(false)
 	head := &types.Header{
