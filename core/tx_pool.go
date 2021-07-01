@@ -155,6 +155,9 @@ type TxPoolConfig struct {
 	GlobalQueue  uint64 // Maximum number of non-executable transaction slots for all accounts
 
 	Lifetime time.Duration // Maximum amount of time non-executable transaction are queued
+
+	// Cascadeth: majorityStake needed to confirm tx
+	MajorityStake *big.Int
 }
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
@@ -731,9 +734,6 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLocal bool) (confirmed bool, err error) {
 
 	hash := tx.Hash()
-	majorityStake := new(big.Int).Set(TotalStake)
-	majorityStake.Div(majorityStake.Mul(majorityStake, new(big.Int).SetInt64(2)), new(big.Int).SetInt64(3))
-	log.Debug("majority stake is", "majority stake", majorityStake)
 
 	// If the transaction fails basic validation, discard it
 	// Cascadeth: It could also be an ack for a tx we have already confirmed, either way we can discard it
@@ -797,7 +797,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 		// Verify that more than 2/3 stake are in favor
 
-		if sum.Cmp(majorityStake) > 0 {
+		if sum.Cmp(pool.config.MajorityStake) > 0 {
 			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before")
 			return true, nil
 		}
@@ -829,7 +829,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	}
 
 	// If 2/3 of stake has acked, then tx is confirmed.
-	if sum.Cmp(majorityStake) > 0 {
+	if sum.Cmp(pool.config.MajorityStake) > 0 {
 		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
 		return true, nil
 	} else {

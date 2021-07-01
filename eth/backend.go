@@ -198,6 +198,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
 	}
+	// Cascadeth: set MajorityStake in TxPoolConfig
+	majorityStake := new(big.Int).Set(chainConfig.TotalStake)
+	majorityStake.Div(majorityStake.Mul(majorityStake, new(big.Int).SetInt64(2)), new(big.Int).SetInt64(3))
+	config.TxPool.MajorityStake = majorityStake
+	log.Debug("Setting MajorityStake in TxPoolConfig.", "totalStake", chainConfig.TotalStake, "majorityStake", majorityStake)
 
 	// Cascdeth: Here one could give genesisHash or state to TxPool for PoS mechanism
 	// Instead, first state update is used as stake state.

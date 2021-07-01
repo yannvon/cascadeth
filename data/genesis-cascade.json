@@ -11,7 +11,8 @@
     "clique": {
       "period": 5,
       "epoch": 30000
-    }
+    },
+    "totalStake": 7000000000000000000
   },
   "difficulty": "1",
   "gasLimit": "80000000000",

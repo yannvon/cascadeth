@@ -577,6 +577,10 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 - [ ] Error case if own ack immediately is enough to verify: will never be added to current state (in old model)
 
+### 1.07
+
+- [ ] initGenesis is done with geth init, and not during the regular execution of geth ! :O hence we need to read genesis again to read totalStake available ?
+
 
 
 ## TODO
