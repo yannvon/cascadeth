@@ -71,4 +71,13 @@ var (
 	// ErrTxTypeNotSupported is returned if a transaction is not supported in the
 	// current network configuration.
 	ErrTxTypeNotSupported = types.ErrTxTypeNotSupported
+
+	// Cascadeth: ErrInusfficientAcks
+	ErrInsufficientAcks = errors.New("not enough acks received to confirm tx")
+
+	// Cascadeth: ErrNonceAlreadyAcked
+	ErrNonceAlreadyAcked = errors.New("a tx with same sender and nonce was already acked")
+
+	// Cascadeth: ErrUnexpectedNonce
+	ErrUnexpectedNonce = errors.New("tx with given nonce can't be validated, maybe due to only single unconfirmed tx allowed")
 )

@@ -215,9 +215,8 @@ type BlockChain struct {
 
 	etherbase *common.Address // Cascadeth: Needed in order to distinguish local and external blocks (chain management)
 
-	stateRoot    common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
-	ackStateRoot common.Hash // Cascadeth: Use a different state for acknowledging txs
-	txPool       *TxPool     //Cascadeth: reference to txPool
+	stateRoot common.Hash // Cascadeth: Instead of using parent root for current state, keep it stored here.
+	txPool    *TxPool     //Cascadeth: reference to txPool
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -306,7 +305,6 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	// Cascadeth: Init state, loadLastState above should have loaded the genesis state.
 	bc.stateRoot = bc.CurrentBlock().Root()
-	bc.ackStateRoot = bc.CurrentBlock().Root()
 	log.Debug("Cascadeth: Init stateRoot", "stateRoot", bc.stateRoot)
 
 	// Make sure the state associated with the block is available
@@ -753,11 +751,6 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 // Cascadeth: StateRoot returns the hash of the current root of the state.
 func (bc *BlockChain) StateRoot() common.Hash {
 	return bc.stateRoot
-}
-
-// Cascadeth: StateRoot returns the hash of the current root of the state.
-func (bc *BlockChain) AckStateRoot() common.Hash {
-	return bc.ackStateRoot
 }
 
 // StateCache returns the caching database underpinning the blockchain instance.
@@ -1574,6 +1567,7 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 	bc.chainmu.Lock()
 	defer bc.chainmu.Unlock()
 	// Cascadeth: Mining tasks can't actually alter detached state (see race condition detected on 24.06)
+	// Might change it later
 	return bc.writeBlockWithState(block, receipts, logs, state, emitHeadEvent, true)
 }
 
@@ -1583,7 +1577,8 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
-	//FIXME Cascadeth, where do I update stateRoot ?
+	// FIXME Cascadeth, where do I update stateRoot ?
+	// FIXME construct not needed anymore.
 	if len(mining) == 0 {
 		beforeRoot := bc.StateRoot()
 		bc.stateRoot = state.IntermediateRoot(false)
@@ -1591,10 +1586,8 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		// Cascadeth: Keep track of detached state
 		log.Debug("Cascadeth: Write block with state!", "stateRootBefore", beforeRoot, "stateRootNow", bc.stateRoot)
 	} else if mining[0] {
-		beforeRoot := bc.AckStateRoot()
-		bc.ackStateRoot = state.IntermediateRoot(false)
 		// Cascadeth: Keep track of detached ack state
-		log.Debug("Cascadeth: Write block with state! Mining mode: change ackState", "stateRootBefore", beforeRoot, "stateRootNow", bc.ackStateRoot)
+		log.Debug("Cascadeth: Write block with state! Mining mode: do not change anything. FIXME")
 	} else {
 		panic("Unexpected case")
 	}

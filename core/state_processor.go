@@ -175,7 +175,12 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		log.Debug("Cascadeth: ApplyTransaction Cascadeth mode (mining)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
 
 		txpool := txpools[0]
-		confirmed, _ := txpool.addAck(tx, *author, true)
+		confirmed, err := txpool.addAck(tx, *author, true)
+
+		// If this ack is illegal, throw an error and don't allow it to be included in block
+		if err == ErrNonceAlreadyAcked {
+			return nil, ErrNonceAlreadyAcked
+		}
 
 		// FIXME Cascadeth: Flag transaction as acked, so that it can be demoted/deleted immediately, as otherwise we would
 		// Keep adding it to our blocks until it appears in state.
@@ -189,12 +194,13 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		*/
 
 		if !confirmed {
-			log.Debug("Cascadeth: transaction not yet confirmed, but applying changes to ackState /currentState of txPool.")
-			// FIXME invented receipt to avoid mining multiple times ?
-			//receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
-			// return receipt, ErrInsufficientFunds // FIXME InsufficientAck
+			// Made up receipt to avoid nullPointer dereference error later on
+			// Do not applyTransaction, but still include it in block
+			receipt := &types.Receipt{Type: tx.Type(), PostState: statedb.IntermediateRoot(false).Bytes(), CumulativeGasUsed: *usedGas}
+			log.Debug("Cascadeth: transaction not confirmed yet.")
+			return receipt, ErrInsufficientAcks
 		} else {
-			log.Debug("Cascadeth: transaction confirmed, but still only applied to ackState.. FIXME")
+			log.Debug("Cascadeth: transaction confirmed, added to state from local mining. TODO so far no changes to stateRoot though.")
 		}
 	}
 

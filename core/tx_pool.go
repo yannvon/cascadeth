@@ -134,7 +134,6 @@ type blockChain interface {
 	GetBlock(hash common.Hash, number uint64) *types.Block
 	StateAt(root common.Hash) (*state.StateDB, error)
 	StateRoot() common.Hash
-	AckStateRoot() common.Hash
 
 	SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription
 }
@@ -242,11 +241,11 @@ type TxPool struct {
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
 
-	currentState          *state.StateDB // Current state / ackState different from detached stateRoot!	// Cascadeth FIXME, is this up to date ?
-	stakeState            *state.StateDB // Cascadeth: Current state of stake, used for PoS
-	currentConfirmedState *state.StateDB // Cascadeth: Current state containing only confirmed transactions
-	pendingNonces         *txNoncer      // Pending state tracking virtual nonces
-	currentMaxGas         uint64         // Current gas limit for transaction caps
+	currentState     *state.StateDB            // Cascadeth: Current state containing only confirmed transactions
+	expectedAckNonce map[common.Address]uint64 // Cascadeth: Nonces that we have already acked
+	stakeState       *state.StateDB            // Cascadeth: Current state of stake, used for PoS
+	pendingNonces    *txNoncer                 // Pending state tracking virtual nonces
+	currentMaxGas    uint64                    // Current gas limit for transaction caps
 
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
@@ -281,23 +280,24 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 
 	// Create the transaction pool with its initial settings
 	pool := &TxPool{
-		config:          config,
-		chainconfig:     chainconfig,
-		chain:           chain,
-		signer:          types.LatestSigner(chainconfig),
-		confirmed:       make(map[common.Address]*txList),
-		unconfirmed:     make(map[common.Hash]map[common.Address]*big.Int),
-		pending:         make(map[common.Address]*txList),
-		queue:           make(map[common.Address]*txList),
-		beats:           make(map[common.Address]time.Time),
-		all:             newTxLookup(),
-		chainHeadCh:     make(chan ChainHeadEvent, chainHeadChanSize),
-		reqResetCh:      make(chan *txpoolResetRequest),
-		reqPromoteCh:    make(chan *accountSet),
-		queueTxEventCh:  make(chan *types.Transaction),
-		reorgDoneCh:     make(chan chan struct{}),
-		reorgShutdownCh: make(chan struct{}),
-		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+		config:           config,
+		chainconfig:      chainconfig,
+		chain:            chain,
+		signer:           types.LatestSigner(chainconfig),
+		confirmed:        make(map[common.Address]*txList),
+		unconfirmed:      make(map[common.Hash]map[common.Address]*big.Int),
+		pending:          make(map[common.Address]*txList),
+		queue:            make(map[common.Address]*txList),
+		beats:            make(map[common.Address]time.Time),
+		all:              newTxLookup(),
+		chainHeadCh:      make(chan ChainHeadEvent, chainHeadChanSize),
+		reqResetCh:       make(chan *txpoolResetRequest),
+		reqPromoteCh:     make(chan *accountSet),
+		queueTxEventCh:   make(chan *types.Transaction),
+		reorgDoneCh:      make(chan chan struct{}),
+		reorgShutdownCh:  make(chan struct{}),
+		gasPrice:         new(big.Int).SetUint64(config.PriceLimit),
+		expectedAckNonce: make(map[common.Address]uint64),
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -571,6 +571,13 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
+//
+// Cascadeth: distinction local and non-local:
+//
+// LOCAL: single not-acked nonce allowed, and sufficient funds in currentState required
+//
+// NOT_LOCAL: future nonce and sufficient funds in current state TODO negative balances
+//
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Accept only legacy transactions until EIP-2718/2930 activates.
 	if !pool.eip2718 && tx.Type() != types.LegacyTxType {
@@ -599,22 +606,18 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrUnderpriced
 	}
 	// Ensure the transaction adheres to nonce ordering
-	if local && pool.currentState.GetNonce(from) > tx.Nonce() {
-		return ErrNonceTooLow
+	// Cascadeth: Locally we can only validate the immediate next transaction
+	if local && pool.expectedAckNonce[from] != tx.Nonce() { // FIXME + 1 !=
+		return ErrUnexpectedNonce
 	}
-	// Transactor should have enough funds to cover the costs
-	// cost == V + GP * GL
-	if local && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
-		return ErrInsufficientFunds
-	}
-	// Cascadeth: Check nonlocal transaction with different state !
 	// Ensure the transaction adheres to nonce ordering
-	if !local && pool.currentConfirmedState.GetNonce(from) > tx.Nonce() {
+	// Cascadeth: We allow receiveing acks for future transactions though
+	if !local && pool.currentState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if !local && pool.currentConfirmedState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -733,7 +736,18 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 // due to pricing constraints.
 func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLocal bool) (confirmed bool, err error) {
 
+	// Cascadeth: use lock as we perform reads and writes on pool
+	// For example: concurrent invocation could validate tx,even though another tx has been validated & acked in the meantime.
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
+
 	hash := tx.Hash()
+	txOrigin, err := types.Sender(pool.signer, tx) // Guarenteed to succed, as already done in validation step
+	if err != nil {
+		return false, ErrInvalidSender
+	}
+
+	log.Debug("AddAck", "txhash", hash, "expectedAckNonce", pool.expectedAckNonce[txOrigin])
 
 	// If the transaction fails basic validation, discard it
 	// Cascadeth: It could also be an ack for a tx we have already confirmed, either way we can discard it
@@ -742,17 +756,26 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// to the current txpool state. If it is received through a foreign block, then we add the ack if the tx is valid compared
 	// to our current confirmed state.
 	if err := pool.validateTx(tx, isLocal); err != nil {
-		log.Trace("Discarding invalid or old ack for transaction", "hash", hash, "err", err, "currentState", pool.currentConfirmedState)
+		log.Trace("Discarding invalid or old ack for transaction", "hash", hash, "err", err, "currentState", pool.currentState)
 		// invalidTxMeter.Mark(1)
-		return false, err
+		// This usually only happens when due to concurrency a tx isn't dropped from txpool when it should have been.
+		return false, ErrNonceAlreadyAcked
 	}
 
 	// If the transaction is not known, add it to queue, to then ack ourself.
 	// A transaction that was already acked is removed from pool, hence we also check the validity of tx:
 	// If we already acked it, the ackState should reflect that (FIXME race condition?) and thus not validate it.
+
+	// FIXME validate condition should not be necessary ? Instead check unconfirmed
+	// I belive validate condition is necessary indeed, as only single ack allowed per nonce.
 	if pool.all.Get(hash) == nil && pool.validateTx(tx, true) == nil {
 		log.Warn("Cascadeth: Potential new (or old) transaction discovered in block.", "hash", hash)
 		pool.add(tx, false) // Tx that we learn from blocks aren't local
+	}
+
+	// Keeping track of which nonces we have already acked.
+	if isLocal {
+		pool.expectedAckNonce[txOrigin] = tx.Nonce() + 1
 	}
 
 	// If the transaction pool is full, discard underpriced transactions
@@ -798,8 +821,8 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		// Verify that more than 2/3 stake are in favor
 
 		if sum.Cmp(pool.config.MajorityStake) > 0 {
-			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before")
-			return true, nil
+			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before. (can be reached if single ack is enough to validate)")
+			return false, nil
 		}
 	} else {
 		log.Debug("Cascadeth: Ack for new tx encountered.")
@@ -1380,7 +1403,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 		newHead = pool.chain.CurrentBlock().Header() // Special case during testing
 	}
 
-	statedb, err := pool.chain.StateAt(pool.chain.AckStateRoot()) // Cascadeth: FIXME add currentState root to currentBlock?
+	statedb, err := pool.chain.StateAt(pool.chain.StateRoot()) // Cascadeth: FIXME add currentState root to currentBlock?
 	if err != nil {
 		log.Error("Failed to reset txpool state", "err", err)
 		return
@@ -1395,18 +1418,11 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	// This seperate ackState will move separetly from the currentStake containing confirmed transactions.
 	// Note that appart from being more advanced, the only mismatch between the two stem from double spends
 	// which only punish (potentially malicious, except when account sharing) user.
+	// Note: This doesn't work, as there is a problem: If another tx gets confirm, the recepient will never get
+	// to use his funds.
 	pool.currentState = statedb
 	pool.pendingNonces = newTxNoncer(pool.currentState)
 	pool.currentMaxGas = newHead.GasLimit
-
-	// Cascadeth: Same but with confirmed state (FIXME rename current -> ack ?)
-	confirmedstatedb, err := pool.chain.StateAt(pool.chain.StateRoot())
-	if err != nil {
-		log.Error("Failed to reset txpool state", "err", err)
-		return
-	}
-	pool.currentConfirmedState = confirmedstatedb
-	//pool.confirmedPendingNonces = newTxNoncer(pool.currentConfirmedState)
 
 	// Inject any transactions discarded due to reorgs
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
@@ -1433,7 +1449,10 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			continue // Just in case someone calls with a non existing account
 		}
 		// Drop all transactions that are deemed too old (low nonce)
-		forwards := list.Forward(pool.currentState.GetNonce(addr))
+		// FIXME use expectedAckNonce for dropping
+		log.Debug("PPromote executables.", "currentState nonce", pool.currentState.GetNonce(addr), "ackedNonce", pool.expectedAckNonce[addr])
+
+		forwards := list.Forward(pool.expectedAckNonce[addr])
 		for _, tx := range forwards {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
@@ -1623,21 +1642,9 @@ func (pool *TxPool) truncateQueue() {
 func (pool *TxPool) demoteUnexecutables() {
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
-		nonce := pool.currentState.GetNonce(addr)
-
-		// Cascadeth: Drop all transactions that we have included in a block before
-		// Not needed anymore, since they will get dropped automatically, as currentState gets updated.
-		/*
-			for _, tx := range list.txs.items {
-				hash := tx.Hash()
-				if pool.acked[hash] {
-					pool.all.Remove(hash)
-					log.Trace("Cascadeth: Removed pending transaction that was already acked.", "hash", hash)
-					// FIXME Cascadeth: We need better implementation
-					// At the very least garb	age collect acked set, after a while (if we delete from acked immediately, will it be added again ?)
-				}
-			}
-		*/
+		log.Debug("Demote unexecutables", "currentState nonce", pool.currentState.GetNonce(addr), "ackedNonce", pool.expectedAckNonce[addr])
+		//nonce := pool.currentState.GetNonce(addr)
+		nonce := pool.expectedAckNonce[addr]
 
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)

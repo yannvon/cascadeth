@@ -556,7 +556,16 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] is db concurrent ?
 - [ ] is processing concurrent ? might something go wrong if two blocks are processed concurrently.
 - [ ] If not we need lock on currentStateRoot.
-- [ ] instead of ackStateRoot -> map with addr to nonce, solves inconsistency of funds problem
+- [ ] instead of ackStateRoot -> map with addr to nonce, solves **inconsistency of funds problem**: 
+  - [ ] A -> B       (acked)
+  - [ ] A -> C       (confirmed)
+  - [ ] with ackState C will never receive funds in ackState (without complex rollback) and won't be able to use his funds (or receive less acks for his tx)! This is a problem, as he didn't do anything wrong.
+  - [ ] Suggested solution: use ackNonces to keep track of what nonces we have already acked, and instead used currentState to check balance for ack!
+  - [ ] **PROBLEM** 01.07: BUT if we ack [A -> B, nonce: 0, value: 5] we should not ack [A -> B, nonce: 1, value: 5], if A has only 5 funds, but the first tx was not confirmed yet.  
+    - [ ] Solution 1: Only 1 unconfirmed transaction is allowed per account (SLOW, not scalable for smart contracts or is it ? Not a concern for now !), 
+      - [ ] TX must be immediately dropped at client if previous not confirmed !
+    - [ ] ACTUALLLY It is the solution chosen by Rachid et al. as well !
+    - [ ] Would it be possible to ack transactions without having previous local tx confirmed, as I have done with ackState ?
 - [ ] might need to go negative, or buffer
 
 #### New TODO POS
@@ -567,7 +576,9 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] make sure that block processing is either not concurrent, or then use thread safe currentState
 - [ ] Is db concurrent ? make sure we don't write too many useless things
 - [ ] go negative balances or use buffer if confirmed transaction 
-- [ ] read genesis stake sum
+- [x] read genesis stake sum
+- [ ] What if insufficient funds at the moment ? Ack dropped, added later ? confirmed TX not executed ?
+- [ ] TX must be immediately dropped at client if previous not confirmed !
 
 ### 29.06
 
@@ -577,9 +588,44 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 - [ ] Error case if own ack immediately is enough to verify: will never be added to current state (in old model)
 
-### 1.07
+### 01.07
 
-- [ ] initGenesis is done with geth init, and not during the regular execution of geth ! :O hence we need to read genesis again to read totalStake available ?
+- [x] initGenesis is done with geth init, and not during the regular execution of geth ! :O hence we need to read genesis again to read totalStake available ?
+  - [x] instead add field to genesis config json file 
+- [ ] change ackState to ackMap
+  - [ ] the negative aspects of ackState are detailed above (inconsitency of funds problem.)
+  - [ ] One major problem: ackState/currentState was used to know when to drop transactions from pool !
+  - [ ] Discover some problem with not having ackState, we need to wait for previous tx nonce to be confirmed !
+- [ ] Remove ackState and ackState functions from blockchain
+- [ ] Why do Byantine Reliable Broadcast implementation (see Astro 1 or Astro 2) have to phases ?
+
+### 02.07
+
+- [ ] Read up on Rachid's book: Double echo broadcast: Why do Byantine Reliable Broadcast implementation (see Astro 1 or Astro 2) have two phases ? Is that a problem for us ?
+- [x] Add tx to txpool if not in unconfirmed yet ! (thread safety ?)
+- [x] make sure only 1 tx can be unconfirmed at any time
+- [x] Realisation: We don't even need this additional datastructure (expectedAckNonce), as we can only have one nonce in transit anyways, hence we can use current state !
+  - [x] Realisation 2: we do need it, as obviously the state is not updated immediately, and we only want to ackOnce -> back to previous "acked" set that I had.
+- [x] Remove ability for mining to change state -> as otherwise we have the well known concurrency issue (see 24.06), again, this creates an edge case were the protocol doesn't work: when we give the last ack.
+- [ ] Instead of processing block like a miner, process it like other block ->
+
+
+
+### Next meeting
+
+- [ ] New problem without ackState: only one unconfirmed transaction at a time possible -> seems intuitive that this is necessary in any case,
+  - [ ] even if we use ackState, and then roll it back as soon as we discover error, then follow-up acks would still have been wrong and we can't simply re-ack other follow-up txs !! 
+  - [ ] This problem got me quite confused
+  - [ ] Also present in EPFL Astro implementation
+
+## Fundamental differences account based vs UTXO based model
+
+Since dependencies undefined, we need some form of ordering to replicate (local order or local causal order)
+
+1. Looser dependencies make it impossible to assign stake flux to some validator (who looses stake ?)
+2. Looser dependencies (local order instead of local causal order) require ...
+
+
 
 
 
@@ -625,6 +671,13 @@ personal.unlockAccount(eth.accounts[0])
 eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 1, gas: 100000, gasPrice: 1})
 
 admin.addPeer("enode://01bee8f3e8db6de17801bc7273e4171a5a20a136c23d39623337268118132acfe0adcdcc5e5df5f95b8f5d3c0933d632621a3a065cf9b5015a7e7806ee9b5903@127.0.0.1:30303?discport=0")
+```
+
+## Accessing metrics
+
+```
+http://127.0.0.1:6061/debug/metrics
+
 ```
 
 

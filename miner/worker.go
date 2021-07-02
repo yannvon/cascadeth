@@ -650,7 +650,7 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	// the miner to speed block sealing up a bit
 
 	// Cascadeth: instead of using parent.Root(), use detached state root.
-	state, err := w.chain.StateAt(w.chain.AckStateRoot()) // Use AckState to decide which tx can be acked.
+	state, err := w.chain.StateAt(w.chain.StateRoot())
 	if err != nil {
 		return err
 	}
@@ -739,16 +739,18 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	log.Debug("Commit transaction is going to call applytransaction.")
+	log.Debug("Commit transaction is going to call applyTransaction.")
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), w.eth.TxPool())
 
-	if err == core.ErrInsufficientFunds { // FIXME better error
+	// Cascadeth
+	if err == core.ErrInsufficientAcks {
 		// Main case, the transaction could not be applied because of insufficientAcks, but should still be included in blocks
 		w.current.txs = append(w.current.txs, tx)
 		w.current.receipts = append(w.current.receipts, receipt)
 		return nil, nil
-	} else if err == core.ErrAlreadyKnown {
-		log.Debug("Transaction acked before, thus not included anymore.")
+	} else if err == core.ErrNonceAlreadyAcked {
+		log.Debug("Transaction with same sender and nonce acked before, thus not included anymore.")
+		// This can happen due to concurrency and shouldn't be a big problem.
 		return nil, err
 	} else if err != nil {
 		w.current.state.RevertToSnapshot(snap)
