@@ -59,6 +59,14 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
+
+	// Cascadeth: Add lock here as we validate and addAck multiple times
+	p.txpool.mu.RLock()
+
+	// FIXME non-mining nodes never reorg & thus never update state. This is a quick fix for that.
+	log.Debug("Updating txpool state", "state hash", statedb.IntermediateRoot(false))
+	p.txpool.currentState = statedb
+
 	var (
 		receipts types.Receipts
 		usedGas  = new(uint64)
@@ -66,7 +74,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs  []*types.Log
 		gp       = new(GasPool).AddGas(block.GasLimit())
 	)
-	log.Debug("START - Processing block", "block number", block.Number(), "blockHash", block.Hash())
+	log.Debug("START - Processing block", "block number", block.Number(), "blockHash", block.Hash(), "txpool state", p.txpool.currentState.IntermediateRoot(false))
 
 	// Mutate the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
@@ -91,17 +99,30 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		// Cascadeth: Add ack to txPool and only apply transaction if enough acks received.
 		log.Debug("Cascadeth: applyTransaction (state processing)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
 
+		// If the transaction is not valid anymore, we can skip it
+		if err := p.txpool.validateAck(tx, false); err != nil {
+			log.Trace("Transaction ack is not relevant anymore.", "hash", tx.Hash())
+			continue
+		}
+
 		confirmed, _ := p.txpool.addAck(tx, author, false)
 
 		// Here we do not care too much about errors, since if there is any, there will be a bad block exception
 		// and while we will not insert any more blocks from this validators, supposedly we don't need to as he was malicious. (FIXME)
 		if !confirmed {
 			log.Debug("Cascadeth: transaction not yet confirmed")
-			continue // FIXME not enough acks found.
+			continue
 		} else {
 			log.Debug("Cascadeth: transaction confirmed")
+
+			// Here we must still check if the required funds are present, & nonce in order
+			// Otherwise add to confirmed, such that we can apply it later
+			if err := p.txpool.validateTx(tx, false); err != nil {
+				log.Trace("Confirmed transaction cannot be applied immediately", "hash", tx.Hash(), "reason", err)
+				p.txpool.confirmed = append(p.txpool.confirmed, tx)
+				continue
+			}
 		}
-		// TX was confirmed and can now be processed
 
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
@@ -114,7 +135,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Cascadeth: Also process transactions that were confirmed with our own ack and thus (maybe) weren't applied yet
 	// TODO remove tx from confirmed once we receive another ack
 	log.Debug("Iterating over confirmed txs")
-	p.txpool.mu.RLock()
 	n := 0
 	for i, tx := range p.txpool.confirmed {
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number))
@@ -122,7 +142,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			return nil, nil, 0, err
 		}
 
-		log.Debug("Cascadeth: Handling transaction that was confirmed by ourselves to avoid cornercase.", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
+		log.Debug("Iterating confirmed transactions.", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
 		// First check if it is still valid
 		// FIXME Use isLocal = true as we want to apply it immediately ? No, as otherwise we could not apply it, as we have
 		// already increased expectedAckNonce.
@@ -133,9 +153,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			p.txpool.confirmed[n] = tx
 			n++
 			continue
-		} else if err != nil {
+		} else if err == ErrNonceTooHigh {
+			log.Debug("While processing confirmed txs, a future tx was encountered", "txhash", tx.Hash())
+			// Keep tx here until sufficient funds are received
+			p.txpool.confirmed[n] = tx
+			n++
+			continue
+		} else if err != ErrNonceTooLow {
 			// Another error happened, meaning the tx is likely too old or has already been processed differently
-			log.Debug("While processing confirmed txs, old tx was encountered", "txhash", tx.Hash())
+			log.Debug("While processing confirmed txs, old tx or tx with error was encountered", "txhash", tx.Hash(), "err", err)
 			// continue without saving tx
 			continue
 		}
@@ -220,13 +246,23 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	} else {
 		log.Debug("Cascadeth: ApplyTransaction Cascadeth mode (mining)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
 
+		// First check that we can indeed ack this transaction
+		// Cascadeth: use lock as we perform reads and writes on pool
+		// For example: concurrent invocation could validate tx,even though another tx has been validated & acked in the meantime.
+
 		txpool := txpools[0]
-		confirmed, err := txpool.addAck(tx, *author, true)
+		txpool.mu.RLock()
+		defer txpool.mu.RUnlock()
 
 		// If this ack is illegal, throw an error and don't allow it to be included in block
-		if err == ErrNonceAlreadyAcked {
-			return nil, ErrNonceAlreadyAcked
+		err = txpool.validateAck(tx, true)
+		if err != nil {
+			log.Debug("Local transaction could not be acked, as an error occured during validation.")
+			// For example ErrNonceAlreadyAcked can happen due to concurrency
+			return nil, err
 		}
+
+		confirmed, _ := txpool.addAck(tx, *author, true)
 
 		// FIXME Cascadeth: Flag transaction as acked, so that it can be demoted/deleted immediately, as otherwise we would
 		// Keep adding it to our blocks until it appears in state.
@@ -246,7 +282,9 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 			log.Debug("Cascadeth: transaction not confirmed yet.")
 			return receipt, ErrInsufficientAcks
 		} else {
-			log.Debug("Cascadeth: transaction confirmed, added to state from local mining. TODO so far no changes to stateRoot though.")
+			// If it was a local Ack, then add to confirmed just in case it was last ack received or first ack that immediately confirms tx
+			txpool.confirmed = append(txpool.confirmed, tx)
+			log.Debug("Cascadeth: transaction confirmed by local ack, added to confirmed txs.")
 		}
 	}
 

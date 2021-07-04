@@ -572,10 +572,10 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 - [x] change ackStateRoot, to map of sender to nonce (maybe containing tx)
 - [ ] clean up unconfirmed once confirmed
-- [ ] treat own blocks in the same way as foreign blocks -> in order to avoid race condition, while also avoiding edge case where our ack is the last ack received
-- [ ] make sure that block processing is either not concurrent, or then use thread safe currentState
+- [x] treat own blocks in the same way as foreign blocks -> in order to avoid race condition, while also avoiding edge case where our ack is the last ack received -> not easier, use buffer instead
+- [x] make sure that block processing is either not concurrent, or then use thread safe currentState
 - [ ] Is db concurrent ? make sure we don't write too many useless things
-- [ ] go negative balances or use buffer if confirmed transaction 
+- [x] go negative balances or use buffer if confirmed transaction -> buffer is easier as we need buffer for locally acked tx anyways
 - [x] read genesis stake sum
 - [ ] What if insufficient funds at the moment ? Ack dropped, added later ? confirmed TX not executed ?
 - [ ] TX must be immediately dropped at client if previous not confirmed !
@@ -615,8 +615,11 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 ### 04.07
 
-- [ ] Eliminate cornercase where we add last ack
+- [x] Eliminate cornercase where we add last ack
 - [ ] Decide on what to do if insufficient funds
+  - [ ] First allow acks for insufficient funds transactions
+  - [ ] differentiate between validateAck and validateTx
+- [ ] Check condition on adding discovered ack to pool, if future discovered tx are simply dropped we might not satisfy consistency property, as underlying broadcast has no properties 
 
 
 

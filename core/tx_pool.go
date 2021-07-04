@@ -556,6 +556,64 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
+func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+	// Accept only legacy transactions until EIP-2718/2930 activates.
+	if !pool.eip2718 && tx.Type() != types.LegacyTxType {
+		return ErrTxTypeNotSupported
+	}
+	// Reject transactions over defined size to prevent DOS attacks
+	if uint64(tx.Size()) > txMaxSize {
+		return ErrOversizedData
+	}
+	// Transactions can't be negative. This may never happen using RLP decoded
+	// transactions but may occur if you create a transaction using the RPC.
+	if tx.Value().Sign() < 0 {
+		return ErrNegativeValue
+	}
+	// Ensure the transaction doesn't exceed the current block limit gas.
+	if pool.currentMaxGas < tx.Gas() {
+		return ErrGasLimit
+	}
+	// Make sure the transaction is signed properly.
+	from, err := types.Sender(pool.signer, tx)
+	if err != nil {
+		return ErrInvalidSender
+	}
+	// Drop non-local transactions under our own minimal accepted gas price
+	if !local && tx.GasPriceIntCmp(pool.gasPrice) < 0 {
+		return ErrUnderpriced
+	}
+
+	// Ensure the transaction adheres to nonce ordering
+	if pool.currentState.GetNonce(from) > tx.Nonce() {
+		return ErrNonceTooLow
+	}
+
+	// Ensure the transaction adheres to nonce ordering
+	// DIFFERENCE We can't validate future txs
+	if pool.currentState.GetNonce(from) < tx.Nonce() {
+		log.Debug("NonceTooHigh Error", "expected", pool.currentState.GetNonce(from), "actual", tx.Nonce())
+		return ErrNonceTooHigh
+	}
+
+	// Transactor should have enough funds to cover the costs
+	// cost == V + GP * GL
+	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+		return ErrInsufficientFunds
+	}
+	// Ensure the transaction has more gas than the basic tx fee.
+	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.istanbul)
+	if err != nil {
+		return err
+	}
+	if tx.Gas() < intrGas {
+		return ErrIntrinsicGas
+	}
+	return nil
+}
+
+// validateTx checks whether a transaction is valid according to the consensus
+// rules and adheres to some heuristic limits of the local node (price and size).
 //
 // Cascadeth: distinction local and non-local:
 //
@@ -563,7 +621,7 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 //
 // NOT_LOCAL: future nonce and sufficient funds in current state TODO negative balances
 //
-func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+func (pool *TxPool) validateAck(tx *types.Transaction, local bool) error {
 	// Accept only legacy transactions until EIP-2718/2930 activates.
 	if !pool.eip2718 && tx.Type() != types.LegacyTxType {
 		return ErrTxTypeNotSupported
@@ -592,7 +650,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Ensure the transaction adheres to nonce ordering
 	// Cascadeth: Locally we can only validate the immediate next transaction
-	if local && pool.expectedAckNonce[from] != tx.Nonce() { // FIXME + 1 !=
+	if local && pool.expectedAckNonce[from] != tx.Nonce() {
 		return ErrUnexpectedNonce
 	}
 	// Ensure the transaction adheres to nonce ordering
@@ -602,7 +660,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	// This is only locally important, as for executing tx we use validateTX
+	// DIFFERENCE TO validateTx, only matters for local acks
+	if local && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -636,7 +696,8 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	isLocal := local || pool.locals.containsTx(tx)
 
 	// If the transaction fails basic validation, discard it
-	if err := pool.validateTx(tx, isLocal); err != nil {
+	// Cascadeth: We won't immediately apply tx, but ack it, hence use validateAck here
+	if err := pool.validateAck(tx, isLocal); err != nil {
 		log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
 		invalidTxMeter.Mark(1)
 		return false, err
@@ -719,12 +780,11 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 // If a newly added transaction is marked as local, its sending account will be
 // whitelisted, preventing any associated transaction from being dropped out of the pool
 // due to pricing constraints.
+//
+// AddAck should not check validity, as
+//
+// Lock before calling !
 func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLocal bool) (confirmed bool, err error) {
-
-	// Cascadeth: use lock as we perform reads and writes on pool
-	// For example: concurrent invocation could validate tx,even though another tx has been validated & acked in the meantime.
-	pool.mu.RLock()
-	defer pool.mu.RUnlock()
 
 	hash := tx.Hash()
 	txOrigin, err := types.Sender(pool.signer, tx) // Guarenteed to succed, as already done in validation step
@@ -734,26 +794,9 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 	log.Debug("AddAck", "txhash", hash, "expectedAckNonce", pool.expectedAckNonce[txOrigin])
 
-	// If the transaction fails basic validation, discard it
-	// Cascadeth: It could also be an ack for a tx we have already confirmed, either way we can discard it
-	// Since we now operate with two different states, we need to specify against which state we validate the tx, hence isLocal flag!
-	// More detailed: if it is a local transaction (received through txpool), then we only add an ack if the tx is valid compared
-	// to the current txpool state. If it is received through a foreign block, then we add the ack if the tx is valid compared
-	// to our current confirmed state.
-	if err := pool.validateTx(tx, isLocal); err != nil {
-		log.Trace("Discarding invalid or old ack for transaction", "hash", hash, "err", err, "currentState", pool.currentState)
-		// invalidTxMeter.Mark(1)
-		// This usually only happens when due to concurrency a tx isn't dropped from txpool when it should have been.
-		return false, ErrNonceAlreadyAcked
-	}
-
 	// If the transaction is not known, add it to queue, to then ack ourself.
-	// A transaction that was already acked is removed from pool, hence we also check the validity of tx:
-	// If we already acked it, the ackState should reflect that (FIXME race condition?) and thus not validate it.
-
-	// FIXME validate condition should not be necessary ? Instead check unconfirmed
-	// I belive validate condition is necessary indeed, as only single ack allowed per nonce.
-	if pool.all.Get(hash) == nil && pool.validateTx(tx, true) == nil {
+	// FIXME If not enough funds / too far into future, still keep around
+	if pool.all.Get(hash) == nil && pool.validateAck(tx, true) == nil {
 		log.Warn("Cascadeth: Potential new (or old) transaction discovered in block.", "hash", hash)
 		pool.add(tx, false) // Tx that we learn from blocks aren't local
 	}
@@ -841,10 +884,6 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
 		//pool.unconfirmed[ackOrigin]
 
-		// If it was a local Ack, then add to confirmed just in case it was last ack received or first ack that immediately confirms tx
-		if isLocal {
-			pool.confirmed = append(pool.confirmed, tx)
-		}
 		return true, nil
 	} else {
 		return false, nil
@@ -1326,6 +1365,9 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 // reset retrieves the current state of the blockchain and ensures the content
 // of the transaction pool is valid with regard to the chain state.
 func (pool *TxPool) reset(oldHead, newHead *types.Header) {
+
+	log.Debug("Reset txpool, retrieving new state.")
+
 	// If we're reorging an old state, reinject all dropped transactions
 	var reinject types.Transactions
 
@@ -1405,12 +1447,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 		pool.stakeState = statedb
 		//totalStake := statedb.AccountHashes
 	}
-	// Cascadeth: Keep a seperate ackState/currentState (only reset once)
-	// This seperate ackState will move separetly from the currentStake containing confirmed transactions.
-	// Note that appart from being more advanced, the only mismatch between the two stem from double spends
-	// which only punish (potentially malicious, except when account sharing) user.
-	// Note: This doesn't work, as there is a problem: If another tx gets confirm, the recepient will never get
-	// to use his funds.
+
 	pool.currentState = statedb
 	pool.pendingNonces = newTxNoncer(pool.currentState)
 	pool.currentMaxGas = newHead.GasLimit
@@ -1441,7 +1478,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		}
 		// Drop all transactions that are deemed too old (low nonce)
 		// FIXME use expectedAckNonce for dropping
-		log.Debug("PPromote executables.", "currentState nonce", pool.currentState.GetNonce(addr), "ackedNonce", pool.expectedAckNonce[addr])
+		log.Debug("Promote executables.", "currentState nonce", pool.currentState.GetNonce(addr), "ackedNonce", pool.expectedAckNonce[addr])
 
 		forwards := list.Forward(pool.expectedAckNonce[addr])
 		for _, tx := range forwards {
