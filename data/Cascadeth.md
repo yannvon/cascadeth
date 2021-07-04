@@ -570,7 +570,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 #### New TODO POS
 
-- [ ] change ackStateRoot, to map of sender to nonce (maybe containing tx)
+- [x] change ackStateRoot, to map of sender to nonce (maybe containing tx)
 - [ ] clean up unconfirmed once confirmed
 - [ ] treat own blocks in the same way as foreign blocks -> in order to avoid race condition, while also avoiding edge case where our ack is the last ack received
 - [ ] make sure that block processing is either not concurrent, or then use thread safe currentState
@@ -592,7 +592,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 
 - [x] initGenesis is done with geth init, and not during the regular execution of geth ! :O hence we need to read genesis again to read totalStake available ?
   - [x] instead add field to genesis config json file 
-- [ ] change ackState to ackMap
+- [x] change ackState to ackMap
   - [ ] the negative aspects of ackState are detailed above (inconsitency of funds problem.)
   - [ ] One major problem: ackState/currentState was used to know when to drop transactions from pool !
   - [ ] Discover some problem with not having ackState, we need to wait for previous tx nonce to be confirmed !
@@ -607,7 +607,16 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [x] Realisation: We don't even need this additional datastructure (expectedAckNonce), as we can only have one nonce in transit anyways, hence we can use current state !
   - [x] Realisation 2: we do need it, as obviously the state is not updated immediately, and we only want to ackOnce -> back to previous "acked" set that I had.
 - [x] Remove ability for mining to change state -> as otherwise we have the well known concurrency issue (see 24.06), again, this creates an edge case were the protocol doesn't work: when we give the last ack.
-- [ ] Instead of processing block like a miner, process it like other block ->
+- [ ] Instead of processing block like a miner, process it like other block ? (this would make the processing/state change shorter, and thus eliminate some problems, given that we have fixed other block concurrency issues.)
+
+- Processing is done when InsertChain is called and requires **blockchain mutex** to be held, hence no concurrency problems !
+
+
+
+### 04.07
+
+- [ ] Eliminate cornercase where we add last ack
+- [ ] Decide on what to do if insufficient funds
 
 
 
@@ -617,6 +626,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [ ] even if we use ackState, and then roll it back as soon as we discover error, then follow-up acks would still have been wrong and we can't simply re-ack other follow-up txs !! 
   - [ ] This problem got me quite confused
   - [ ] Also present in EPFL Astro implementation
+- [ ] Chain mutex when processing, hence no concurrency problems for now
 
 ## Fundamental differences account based vs UTXO based model
 

@@ -250,7 +250,7 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	confirmed   map[common.Address]*txList                  // All confirmed transactions FIXME not used yet
+	confirmed   types.Transactions                          // All confirmed transactions FIXME not used yet
 	unconfirmed map[common.Hash]map[common.Address]*big.Int // All unconfirmed transactions FIXME simplified version
 	pending     map[common.Address]*txList                  // All currently processable transactions
 	queue       map[common.Address]*txList                  // Queued but non-processable transactions
@@ -284,7 +284,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chainconfig:      chainconfig,
 		chain:            chain,
 		signer:           types.LatestSigner(chainconfig),
-		confirmed:        make(map[common.Address]*txList),
+		confirmed:        make([]*types.Transaction, 0),
 		unconfirmed:      make(map[common.Hash]map[common.Address]*big.Int),
 		pending:          make(map[common.Address]*txList),
 		queue:            make(map[common.Address]*txList),
@@ -530,21 +530,6 @@ func (pool *TxPool) Unconfirmed() (map[common.Address]types.Transactions, error)
 }
 */
 
-// Unconfirmed retrieves all transactions currently waiting for more acks, grouped by origin
-// account and sorted by nonce. The returned transaction set is a copy and can be
-// freely modified by calling code.
-// FIXME grouped by ammount/weight of acks ?
-func (pool *TxPool) Confirmed() (map[common.Address]types.Transactions, error) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
-	confirmed := make(map[common.Address]types.Transactions)
-	for addr, list := range pool.confirmed {
-		confirmed[addr] = list.Flatten()
-	}
-	return confirmed, nil
-}
-
 // Locals retrieves the accounts currently considered local by the pool.
 func (pool *TxPool) Locals() []common.Address {
 	pool.mu.Lock()
@@ -774,6 +759,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	}
 
 	// Keeping track of which nonces we have already acked.
+	// If the first local ack is enough to validate, then we will never execute tx ?
 	if isLocal {
 		pool.expectedAckNonce[txOrigin] = tx.Nonce() + 1
 	}
@@ -819,9 +805,8 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		}
 
 		// Verify that more than 2/3 stake are in favor
-
 		if sum.Cmp(pool.config.MajorityStake) > 0 {
-			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before. (can be reached if single ack is enough to validate)")
+			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before. (can be reached if single ack is enough to validate, as it doesn't change state immediately and is instead added to confirmed.)")
 			return false, nil
 		}
 	} else {
@@ -854,6 +839,12 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// If 2/3 of stake has acked, then tx is confirmed.
 	if sum.Cmp(pool.config.MajorityStake) > 0 {
 		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
+		//pool.unconfirmed[ackOrigin]
+
+		// If it was a local Ack, then add to confirmed just in case it was last ack received or first ack that immediately confirms tx
+		if isLocal {
+			pool.confirmed = append(pool.confirmed, tx)
+		}
 		return true, nil
 	} else {
 		return false, nil

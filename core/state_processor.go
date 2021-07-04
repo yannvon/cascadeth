@@ -90,7 +90,11 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 		// Cascadeth: Add ack to txPool and only apply transaction if enough acks received.
 		log.Debug("Cascadeth: applyTransaction (state processing)", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
+
 		confirmed, _ := p.txpool.addAck(tx, author, false)
+
+		// Here we do not care too much about errors, since if there is any, there will be a bad block exception
+		// and while we will not insert any more blocks from this validators, supposedly we don't need to as he was malicious. (FIXME)
 		if !confirmed {
 			log.Debug("Cascadeth: transaction not yet confirmed")
 			continue // FIXME not enough acks found.
@@ -107,6 +111,48 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
+	// Cascadeth: Also process transactions that were confirmed with our own ack and thus (maybe) weren't applied yet
+	// TODO remove tx from confirmed once we receive another ack
+	log.Debug("Iterating over confirmed txs")
+	p.txpool.mu.RLock()
+	n := 0
+	for i, tx := range p.txpool.confirmed {
+		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number))
+		if err != nil {
+			return nil, nil, 0, err
+		}
+
+		log.Debug("Cascadeth: Handling transaction that was confirmed by ourselves to avoid cornercase.", "tx hash", tx.Hash(), "tx nonce", tx.Nonce())
+		// First check if it is still valid
+		// FIXME Use isLocal = true as we want to apply it immediately ? No, as otherwise we could not apply it, as we have
+		// already increased expectedAckNonce.
+		err = p.txpool.validateTx(tx, false)
+		if err == ErrInsufficientFunds {
+			log.Debug("While processing confirmed txs, a tx with insufficient funds was encountered", "txhash", tx.Hash())
+			// Keep tx here until sufficient funds are received
+			p.txpool.confirmed[n] = tx
+			n++
+			continue
+		} else if err != nil {
+			// Another error happened, meaning the tx is likely too old or has already been processed differently
+			log.Debug("While processing confirmed txs, old tx was encountered", "txhash", tx.Hash())
+			// continue without saving tx
+			continue
+		}
+
+		// TX was confirmed previously and can now be processed
+		statedb.Prepare(tx.Hash(), block.Hash(), i)
+		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+		}
+		receipts = append(receipts, receipt)
+		allLogs = append(allLogs, receipt.Logs...)
+	}
+	// Remove all txa that weren't saved due to insufficient funds
+	p.txpool.confirmed = p.txpool.confirmed[:n]
+	p.txpool.mu.RUnlock()
+
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
