@@ -621,6 +621,10 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [ ] differentiate between validateAck and validateTx
 - [ ] Check condition on adding discovered ack to pool, if future discovered tx are simply dropped we might not satisfy consistency property, as underlying broadcast has no properties 
 
+### 05.07
+
+- [x] Verify insufficient funds implementation -> if insufficient funds it would usually have been dropped / not accepted to txpool. I accept it, but upon trying to include it in next block it would get discarded -> I added line that normally keeps it in txpool and would try to include them in next block :)
+
 
 
 ### Next meeting

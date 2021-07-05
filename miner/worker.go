@@ -838,6 +838,13 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			log.Trace("Skipping account with hight nonce", "sender", from, "nonce", tx.Nonce())
 			txs.Pop()
 
+		// Cascadeth
+		case errors.Is(err, core.ErrInsufficientFunds):
+			// Reorg notification data race between the transaction pool and miner, skip account =
+			log.Trace("Skipping account with insufficient funds (cascadeth addition)", "sender", from, "nonce", tx.Nonce())
+			// Note that the txs set is a copy, and modifying/dropping them here does not affect the pool !
+			txs.Pop()
+
 		case errors.Is(err, nil):
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
