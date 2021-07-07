@@ -1,4 +1,4 @@
-# Cascadeth
+Cascadeth
 
 This document shall outline the inner workings of *cascadeth*, a client supporting the proof-of-stake protocol called Cascade. This proof-of-concept client was built using the go-ethereum client, and adapts the Cascade protocol to work well with the underlying go-ethereum implementation.
 
@@ -571,14 +571,16 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 #### New TODO POS
 
 - [x] change ackStateRoot, to map of sender to nonce (maybe containing tx)
-- [ ] clean up unconfirmed once confirmed
+- [x] clean up unconfirmed once confirmed [SKIPPED added to general TODO]
 - [x] treat own blocks in the same way as foreign blocks -> in order to avoid race condition, while also avoiding edge case where our ack is the last ack received -> not easier, use buffer instead
 - [x] make sure that block processing is either not concurrent, or then use thread safe currentState
-- [ ] Is db concurrent ? make sure we don't write too many useless things
+- [x] Is db concurrent ? make sure we don't write too many useless things
+  - [x] -> now we have only single state direction & always written when txpool lock is held
 - [x] go negative balances or use buffer if confirmed transaction -> buffer is easier as we need buffer for locally acked tx anyways
 - [x] read genesis stake sum
-- [ ] What if insufficient funds at the moment ? Ack dropped, added later ? confirmed TX not executed ?
-- [ ] TX must be immediately dropped at client if previous not confirmed !
+- [x] What if insufficient funds at the moment ? Ack dropped, added later ? confirmed TX not executed ?
+- [x] TX must be immediately dropped at client if previous not confirmed !
+  - [x] Simply encoded in validateAck
 
 ### 29.06
 
@@ -607,7 +609,7 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [x] Realisation: We don't even need this additional datastructure (expectedAckNonce), as we can only have one nonce in transit anyways, hence we can use current state !
   - [x] Realisation 2: we do need it, as obviously the state is not updated immediately, and we only want to ackOnce -> back to previous "acked" set that I had.
 - [x] Remove ability for mining to change state -> as otherwise we have the well known concurrency issue (see 24.06), again, this creates an edge case were the protocol doesn't work: when we give the last ack.
-- [ ] Instead of processing block like a miner, process it like other block ? (this would make the processing/state change shorter, and thus eliminate some problems, given that we have fixed other block concurrency issues.)
+- [ ] Instead of processing block like a miner, process it like other block ? (this would make the processing/state change shorter, and thus eliminate some problems, given that we have fixed other block concurrency issues.) -> Much more complex, use buffer/array instead.
 
 - Processing is done when InsertChain is called and requires **blockchain mutex** to be held, hence no concurrency problems !
 
@@ -616,16 +618,38 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 ### 04.07
 
 - [x] Eliminate cornercase where we add last ack
-- [ ] Decide on what to do if insufficient funds
-  - [ ] First allow acks for insufficient funds transactions
-  - [ ] differentiate between validateAck and validateTx
+- [x] Decide on what to do if insufficient funds
+  - [x] First allow acks for insufficient funds transactions
+  - [x] differentiate between validateAck and validateTx
 - [ ] Check condition on adding discovered ack to pool, if future discovered tx are simply dropped we might not satisfy consistency property, as underlying broadcast has no properties 
 
 ### 05.07
 
 - [x] Verify insufficient funds implementation -> if insufficient funds it would usually have been dropped / not accepted to txpool. I accept it, but upon trying to include it in next block it would get discarded -> I added line that normally keeps it in txpool and would try to include them in next block :)
+- [x] clean up unconfirmed after confirming -> added to TODO as it is not very quick to do, and I'd rather go ahead, as it is not absolutely crucial for working PoC
+- [ ] Think about double-spending txs and how to resolve them using separate consensus.
 
+### 06.07
 
+- [ ] https://vitalik.ca/general/2020/11/06/pos2020.html
+
+- [ ] https://vitalik.ca/general/2021/05/23/scaling.html
+
+- [ ] Discuss all intuitions with David.
+
+- [ ] Start writing master thesis report.
+
+- [ ] Establish proof sketch on why we need f < 1/5 N for lazy consensus to work
+
+  
+
+### 07.07
+
+- [ ] https://eth.wiki/en/concepts/proof-of-stake-faqs
+- [ ] Is using simple common-coin algorithms a solution ?
+- [ ]  Even if we use PoA or PoW geth, how do we communicate between both instances ? Simply different network id ? The problem with chain based consensus is surely that we need to continuously participate, and more importantly we need a way to establish the validity of a tx -> such that bad blocks can be dropped / chain not continued. For example it seems hard to enforce the **validity property** (eg. what if the consensus decides on a different value that some correct processes has already delivered ? ) Can we say that consensus always takes precedence ? 
+- [ ] How can we force people to participate in consensus ? -> correct processes participate when asked to do so.  But does it mean that byzantine adversary can force every tx onto consensus ? Maybe not, if consensus requires you to show at least 2 conflicting txs to start it !
+- [ ] learn more about rollups and layer 2 tech to understand difference
 
 ### Next meeting
 
@@ -634,6 +658,34 @@ Worked on briefly but skipped in favor of simpler data structure for now.
   - [ ] This problem got me quite confused
   - [ ] Also present in EPFL Astro implementation
 - [ ] Chain mutex when processing, hence no concurrency problems for now
+- [ ] Scaling of our currency, why is parallel processing so important ? Don't we reach other limits (see https://vitalik.ca/general/2021/04/07/sharding.html#improving-sharding-with-better-security-models) first ? If we are so far parallelized that we require multiple machines per validator, then how can we guarantee the valid point that user should have a voice ? -> they can change validator ? (immediately ? (for now only at the very start, in original protocol with every tx.)) How does this fare against large scale attack ?  
+- [ ] Decide on Lazy consensus engine
+  - [ ] Confident in being able to implement common coin based algorithm
+
+
+
+## Lazy consensus
+
+### Questions
+
+1. Differences compared to Rollups ?
+2. Difference compared to other Layer 2 tech ?
+3. Could malicious agents force every tx onto consensus ? 
+   1. What if they are required to submit two conflicting txs as proofs ?
+4. Wouldn't using Ethereum PoW destroy much of the (a)synchrony and efficiency advances ?
+5. How to verify validity property (if no correct process suggests tx1 then can't decide on it) -> some other process might already have delivered tx2 !
+   1. If consensus always takes precedence we do not have immediate finality anymore, someone can always come around and suggest tx2 while everyone else chose tx1, and consensus deciding on tx2 would be valid. -> we could prevent it by changing consensus rules.
+6. 
+
+### Some thoughts
+
+It's not as simple as just using PoW geth, as we need verification of validity.
+
+Pretty confident in being able to add my own consensus engine on top (common-coin based ?)
+
+
+
+
 
 ## Fundamental differences account based vs UTXO based model
 
@@ -651,13 +703,13 @@ Since dependencies undefined, we need some form of ordering to replicate (local 
 - [ ] Prevent block spamming from malicious validators (DOS attack) ? Are all notifications accepted ? Are all blocks fetched ?
 - [ ] Make sure that permissioned system has right security guarantees for broadcast.
 - [ ] Block fetcher: remove ordering check (must not be too much bigger than current head), such that also non-mining nodes can import blocks. (and allow for async network / time drift)
-- [ ] Import out of order blocks, for now we drop them. (either keep them in queue by having head per validator, or have syning)
-- [ ] Read transactions from sidechains blocks as well
+- [ ] Import out of order blocks, for now we drop them. (either keep them in queue by having head per validator, or have syncing, such that dropped blocks can be recovered)
 - [ ] Make all nodes archive nodes: bc.cacheConfig.TrieDirtyDisabled
-- [ ] Remove transaction rewards for now
+- [x] Remove transaction rewards for now
 - [ ] Add two datastructures, one for transactions to confirm (txPool?) and one for tx waiting to be processed -> processing needs to check pool and see if new txs can be imported
 - [ ] Instead of stateRoot and chaning it everywhere, one could imagine updating currentBlock root. (and reverting previous changes)
-- [ ] Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
+- [x] Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
+- [ ] Improve unconfirmed datastructure according to sketch above, this would allow us to remove transactions/clean old acks from it. (currently it just keeps getting bigger & not garbage collection)
 
 
 
