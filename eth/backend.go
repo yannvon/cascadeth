@@ -201,8 +201,14 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	// Cascadeth: set MajorityStake in TxPoolConfig
 	majorityStake := new(big.Int).Set(chainConfig.TotalStake)
 	majorityStake.Div(majorityStake.Mul(majorityStake, new(big.Int).SetInt64(2)), new(big.Int).SetInt64(3))
-	config.TxPool.MajorityStake = majorityStake
+	config.TxPool.QuorumStake = majorityStake
 	log.Debug("Setting MajorityStake in TxPoolConfig.", "totalStake", chainConfig.TotalStake, "majorityStake", majorityStake)
+
+	// Cascadeth: set AposterioriStake in TxPoolConfig
+	aPosterioriStake := new(big.Int).Set(chainConfig.TotalStake)
+	aPosterioriStake.Div(aPosterioriStake.Mul(aPosterioriStake, new(big.Int).SetInt64(4)), new(big.Int).SetInt64(5))
+	config.TxPool.APosterioriStake = aPosterioriStake
+	log.Debug("Setting APosterioriStake in TxPoolConfig.", "totalStake", chainConfig.TotalStake, "aPosterioriStake", aPosterioriStake)
 
 	// Cascdeth: Here one could give genesisHash or state to TxPool for PoS mechanism
 	// Instead, first state update is used as stake state.

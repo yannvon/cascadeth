@@ -649,9 +649,9 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] Is using simple common-coin algorithms a solution ?
 - [ ]  Even if we use PoA or PoW geth, how do we communicate between both instances ? Simply different network id ? The problem with chain based consensus is surely that we need to continuously participate, and more importantly we need a way to establish the validity of a tx -> such that bad blocks can be dropped / chain not continued. For example it seems hard to enforce the **validity property** (eg. what if the consensus decides on a different value that some correct processes has already delivered ? ) Can we say that consensus always takes precedence ? 
 - [ ] How can we force people to participate in consensus ? -> correct processes participate when asked to do so.  But does it mean that byzantine adversary can force every tx onto consensus ? Maybe not, if consensus requires you to show at least 2 conflicting txs to start it !
-- [ ] learn more about rollups and layer 2 tech to understand difference
+- [ ] learn more about rollups and layer 2 tech to understand difference https://vitalik.ca/general/2021/01/05/rollup.html
 
-### Next meeting
+### Meeting 08.07
 
 - [ ] New problem without ackState: only one unconfirmed transaction at a time possible -> seems intuitive that this is necessary in any case,
   - [ ] even if we use ackState, and then roll it back as soon as we discover error, then follow-up acks would still have been wrong and we can't simply re-ack other follow-up txs !! 
@@ -661,6 +661,36 @@ Worked on briefly but skipped in favor of simpler data structure for now.
 - [ ] Scaling of our currency, why is parallel processing so important ? Don't we reach other limits (see https://vitalik.ca/general/2021/04/07/sharding.html#improving-sharding-with-better-security-models) first ? If we are so far parallelized that we require multiple machines per validator, then how can we guarantee the valid point that user should have a voice ? -> they can change validator ? (immediately ? (for now only at the very start, in original protocol with every tx.)) How does this fare against large scale attack ?  
 - [ ] Decide on Lazy consensus engine
   - [ ] Confident in being able to implement common coin based algorithm
+
+#### Results 
+
+See picture of whiteboard. Suggestion: Can we do without collecting acks ? And what are the advantages of our solution ?
+
+Focus on future & paper as well.
+
+We could go Ethereum and say that this project is purely ethereum based. or BFT which would make more sense probably in terms of advantages.
+
+Also compare advantages to Rollups, as I believe they are somewhat similar.
+
+
+
+### 09.07
+
+- [ ] Focus on adding consensus through Ethereum
+
+- [ ] Try calling contracts through Web3 inside cascadeth
+
+- [ ] Run instance of PoA ethereum, later on we can use test network
+
+  
+
+### 12.07
+
+- [ ] Golang multiple installations issues
+- [ ] multiple go-ethereum installation issues
+- [ ] compile and test first smart contract through go
+- [ ] setup developement env
+- [ ] write first contract verison called multishot -> new git repo
 
 
 
@@ -710,6 +740,7 @@ Since dependencies undefined, we need some form of ordering to replicate (local 
 - [ ] Instead of stateRoot and chaning it everywhere, one could imagine updating currentBlock root. (and reverting previous changes)
 - [x] Solving problem of total stake in the system -> How to initialize cleanly ? How to keep track if growing / getting smaller through fees ?
 - [ ] Improve unconfirmed datastructure according to sketch above, this would allow us to remove transactions/clean old acks from it. (currently it just keeps getting bigger & not garbage collection)
+- [ ] uint as nonce instead of big.int creates problem after a lot of txs
 
 
 

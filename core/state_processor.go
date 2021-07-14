@@ -65,7 +65,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 	// FIXME non-mining nodes never reorg & thus never update state. This is a quick fix for that.
 	log.Debug("Updating txpool state", "state hash", statedb.IntermediateRoot(false))
-	p.txpool.currentState = statedb
+	p.txpool.currentState = statedb	
 
 	var (
 		receipts types.Receipts
@@ -133,7 +133,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs = append(allLogs, receipt.Logs...)
 	}
 	// Cascadeth: Also process transactions that were confirmed with our own ack and thus (maybe) weren't applied yet
-	// TODO remove tx from confirmed once we receive another ack
 	log.Debug("Iterating over confirmed txs")
 	n := 0
 	for i, tx := range p.txpool.confirmed {

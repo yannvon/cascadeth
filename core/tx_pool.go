@@ -155,8 +155,8 @@ type TxPoolConfig struct {
 
 	Lifetime time.Duration // Maximum amount of time non-executable transaction are queued
 
-	// Cascadeth: majorityStake needed to confirm tx
-	MajorityStake *big.Int
+	QuorumStake      *big.Int // Cascadeth: stake needed to confirm tx immediately
+	APosterioriStake *big.Int // Cascadeth: stake needed to propose to aposteriori consensus
 }
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
@@ -250,13 +250,15 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	confirmed   types.Transactions                          // All confirmed transactions FIXME not used yet
-	unconfirmed map[common.Hash]map[common.Address]*big.Int // All unconfirmed transactions FIXME simplified version
-	pending     map[common.Address]*txList                  // All currently processable transactions
-	queue       map[common.Address]*txList                  // Queued but non-processable transactions
-	beats       map[common.Address]time.Time                // Last heartbeat from each known account
-	all         *txLookup                                   // All transactions to allow lookups
-	priced      *txPricedList                               // All transactions sorted by price
+	confirmed     types.Transactions                                   // All confirmed transactions
+	unconfirmed   map[common.Address]map[uint]map[common.Hash]*big.Int // All unconfirmed transactions FIXME simplified version
+	stakeReceived map[common.Address]map[uint]*big.Int                 // Keeping track of stake already received
+	voted         map[common.Address]map[uint]map[common.Address]bool  // Keeping track of which validators have already voted: Nonce represented as uint since big.Ints can't be compared
+	pending       map[common.Address]*txList                           // All currently processable transactions
+	queue         map[common.Address]*txList                           // Queued but non-processable transactions
+	beats         map[common.Address]time.Time                         // Last heartbeat from each known account
+	all           *txLookup                                            // All transactions to allow lookups
+	priced        *txPricedList                                        // All transactions sorted by price
 
 	chainHeadCh     chan ChainHeadEvent
 	chainHeadSub    event.Subscription
@@ -285,7 +287,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chain:            chain,
 		signer:           types.LatestSigner(chainconfig),
 		confirmed:        make([]*types.Transaction, 0),
-		unconfirmed:      make(map[common.Hash]map[common.Address]*big.Int),
+		unconfirmed:      make(map[common.Address]map[uint]map[common.Hash]*big.Int),
+		stakeReceived:    make(map[common.Address]map[uint]*big.Int),
+		voted:            make(map[common.Address]map[uint]map[common.Address]bool),
 		pending:          make(map[common.Address]*txList),
 		queue:            make(map[common.Address]*txList),
 		beats:            make(map[common.Address]time.Time),
@@ -797,7 +801,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// If the transaction is not known, add it to queue, to then ack ourself.
 	// FIXME If not enough funds / too far into future, still keep around
 	if pool.all.Get(hash) == nil && pool.validateAck(tx, true) == nil {
-		log.Warn("Cascadeth: Potential new (or old) transaction discovered in block.", "hash", hash)
+		log.Warn("Cascadeth: Couldn't validate ack. Potential new (or old) transaction discovered in block.", "hash", hash)
 		pool.add(tx, false) // Tx that we learn from blocks aren't local
 	}
 
@@ -811,101 +815,98 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// FIXME Cascadeth: Removed for quicker implementation -> add back later (see function above)
 
 	// Add ack/tx in the unconfirmed pool
-	//from, _ := types.Sender(pool.signer, tx) // already validated
-	//if list := pool.unconfirmed[from]; list != nil && list.Overlaps(tx) {
-	acklist := pool.unconfirmed[hash]
+	from, _ := types.Sender(pool.signer, tx) // already validated
+	nonce := uint(tx.Nonce())
 
-	if acklist != nil {
-		n_acks := len(acklist)
+	// Read datastructures while initializing nested maps if necessary
+	// 1. ackWeight
+	unconfirmedNonces, ok := pool.unconfirmed[from]
+	if !ok {
+		unconfirmedNonces = make(map[uint]map[common.Hash]*big.Int)
+		pool.unconfirmed[from] = unconfirmedNonces
+	}
+	unconfirmedHashes, ok := unconfirmedNonces[nonce]
+	if !ok {
+		unconfirmedHashes = make(map[common.Hash]*big.Int)
+		unconfirmedNonces[nonce] = unconfirmedHashes
+	}
+	ackWeight, ok := unconfirmedHashes[hash]
+	if !ok {
+		ackWeight = big.NewInt(0)
+		unconfirmedHashes[hash] = ackWeight
+	}
+	// 2. voted
+	votedNonces, ok := pool.voted[from]
+	if !ok {
+		votedNonces = make(map[uint]map[common.Address]bool)
+		pool.voted[from] = votedNonces
+	}
+	votedHashes, ok := votedNonces[nonce]
+	if !ok {
+		votedHashes = make(map[common.Address]bool)
+		votedNonces[nonce] = votedHashes
+	}
+	voted, ok := votedHashes[ackOrigin]
+	if !ok {
+		voted = false
+	}
+	// 3. stakeReceived
+	stakeReceivedNonces, ok := pool.stakeReceived[from]
+	if !ok {
+		stakeReceivedNonces = make(map[uint]*big.Int)
+		pool.stakeReceived[from] = stakeReceivedNonces
+	}
+	stakeReceived, ok := stakeReceivedNonces[nonce]
+	if !ok {
+		stakeReceived = big.NewInt(0)
+		stakeReceivedNonces[nonce] = stakeReceived
+	}
 
-		// Nonce already pending, check if required price bump is met
-		log.Debug("Cascadeth: Ack inserted for existing tx", "n_acks", n_acks)
-		/*
-			inserted, old := list.Add(tx, pool.config.PriceBump)
-			if !inserted {
-				pendingDiscardMeter.Mark(1)
-				return false, ErrReplaceUnderpriced
-			}
-			// New transaction is better, replace old one
-			if old != nil {
-				pool.all.Remove(old.Hash())
-				pool.priced.Removed(1)
-				pendingReplaceMeter.Mark(1)
-			}
-			pool.all.Add(tx, isLocal)
-			pool.priced.Put(tx, isLocal)
-			pool.journalTx(from, tx)
-			pool.queueTxEvent(tx)
-			log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
+	// Start operation
+	if ackWeight.Cmp(big.NewInt(0)) != 0 {
 
-			// Successful promotion, bump the heartbeat
-			pool.beats[from] = time.Now()
-			return old != nil, nil
-		*/
-		sum := new(big.Int)
-		for _, i := range pool.unconfirmed[hash] {
-			sum.Add(sum, i)
-		}
+		log.Debug("Cascadeth: Ack inserted for existing tx", "current ackWeight", ackWeight)
 
-		// Verify that more than 2/3 stake are in favor
-		if sum.Cmp(pool.config.MajorityStake) > 0 {
+		// Verify that more than quorum are in favor
+		if ackWeight.Cmp(pool.config.QuorumStake) > 0 {
 			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before. (can be reached if single ack is enough to validate, as it doesn't change state immediately and is instead added to confirmed.)")
 			return false, nil
 		}
 	} else {
 		log.Debug("Cascadeth: Ack for new tx encountered.")
-		acklist = make(map[common.Address]*big.Int)
-	}
-	// New transaction isn't replacing a pending one, push into queue
-	// FIXME push into unconfirmed
-	/*
-		replaced, err = pool.enqueueTx(hash, tx, isLocal, true)
-		if err != nil {
-			return false, err
-		}
-	*/
-	// In any case augment weight
-	if acklist[ackOrigin] == nil {
-
-		ackValue := pool.stakeState.GetBalance(ackOrigin)
-		log.Debug("Ack received.", "value", ackValue, "txhash", hash, "ackOrigin", ackOrigin)
-		acklist[ackOrigin] = ackValue
-		pool.unconfirmed[hash] = acklist
 	}
 
-	// Compute weight of all acks received so far
-	sum := new(big.Int)
-	for _, i := range pool.unconfirmed[hash] {
-		sum.Add(sum, i)
-	}
-
-	// If 2/3 of stake has acked, then tx is confirmed.
-	if sum.Cmp(pool.config.MajorityStake) > 0 {
-		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
-		//pool.unconfirmed[ackOrigin]
-
-		return true, nil
-	} else {
+	if voted {
+		log.Debug("Duplicate ack received.")
 		return false, nil
 	}
 
-	// Mark local addresses and journal local transactions
-	/*
-		if local && !pool.locals.contains(from) {
-			log.Info("Setting new local account", "address", from)
-			pool.locals.add(from)
-			pool.priced.Removed(pool.all.RemoteToLocals(pool.locals)) // Migrate the remotes if it's marked as local first time.
-		}
-		if isLocal {
-			localGauge.Inc(1)
-		}
-		pool.journalTx(from, tx)
+	// Augment weight if new ack received
+	ackValue := pool.stakeState.GetBalance(ackOrigin)
+	log.Debug("Ack received.", "value", ackValue, "txhash", hash, "ackOrigin", ackOrigin)
 
-		log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
-		return replaced, nil
+	// Update values (also changes them in data structure)
+	ackWeight.Add(ackWeight, ackValue)
+	stakeReceived.Add(stakeReceived, ackWeight)
+	pool.voted[from][nonce][ackOrigin] = true
 
-	*/
-	//return true, nil
+	// If 2/3 of stake has acked, then tx is confirmed.
+	if ackWeight.Cmp(pool.config.QuorumStake) > 0 {
+		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
+		return true, nil
+	}
+
+	// If 4/5 of stake has acked and tx is not yet confirmed, we launch a posteriori consensus to avoid potential deadlocks.
+	if stakeReceived.Cmp(pool.config.APosterioriStake) > 0 {
+
+		// Submit ack to multishot contract
+		log.Debug("Submit ack to multishot contract")
+
+		// TODO
+	}
+
+	return false, nil
+
 }
 
 // enqueueTx inserts a new transaction into the non-executable transaction queue.
