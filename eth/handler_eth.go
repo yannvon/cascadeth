@@ -23,13 +23,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/eth/protocols/eth"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/eth/protocols/eth"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/trie"
 )
 
 // ethHandler implements the eth.Backend interface to handle the various network

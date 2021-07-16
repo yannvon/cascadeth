@@ -23,12 +23,12 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	vfc "github.com/ethereum/go-ethereum/les/vflux/client"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/crypto"
+	vfc "github.com/yannvon/cascadeth/les/vflux/client"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/rlp"
 )
 
 // Constants to match up protocol versions and messages

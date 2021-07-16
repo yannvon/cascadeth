@@ -25,12 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/eth"
-	"github.com/ethereum/go-ethereum/eth/ethconfig"
-	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/consensus/ethash"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/eth"
+	"github.com/yannvon/cascadeth/eth/ethconfig"
+	"github.com/yannvon/cascadeth/node"
+	"github.com/yannvon/cascadeth/params"
 
 	"github.com/stretchr/testify/assert"
 )

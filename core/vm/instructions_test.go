@@ -23,9 +23,9 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/params"
 	"github.com/holiman/uint256"
 )
 

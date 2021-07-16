@@ -24,14 +24,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/prque"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/prque"
+	"github.com/yannvon/cascadeth/core/state"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/event"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/metrics"
+	"github.com/yannvon/cascadeth/params"
 )
 
 const (
@@ -268,6 +268,8 @@ type TxPool struct {
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
+
+	//contract *checkpointoracle.CheckpointOracle
 }
 
 type txpoolResetRequest struct {
@@ -815,15 +817,14 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// FIXME Cascadeth: Removed for quicker implementation -> add back later (see function above)
 
 	// Add ack/tx in the unconfirmed pool
-	from, _ := types.Sender(pool.signer, tx) // already validated
 	nonce := uint(tx.Nonce())
 
 	// Read datastructures while initializing nested maps if necessary
 	// 1. ackWeight
-	unconfirmedNonces, ok := pool.unconfirmed[from]
+	unconfirmedNonces, ok := pool.unconfirmed[txOrigin]
 	if !ok {
 		unconfirmedNonces = make(map[uint]map[common.Hash]*big.Int)
-		pool.unconfirmed[from] = unconfirmedNonces
+		pool.unconfirmed[txOrigin] = unconfirmedNonces
 	}
 	unconfirmedHashes, ok := unconfirmedNonces[nonce]
 	if !ok {
@@ -836,10 +837,10 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		unconfirmedHashes[hash] = ackWeight
 	}
 	// 2. voted
-	votedNonces, ok := pool.voted[from]
+	votedNonces, ok := pool.voted[txOrigin]
 	if !ok {
 		votedNonces = make(map[uint]map[common.Address]bool)
-		pool.voted[from] = votedNonces
+		pool.voted[txOrigin] = votedNonces
 	}
 	votedHashes, ok := votedNonces[nonce]
 	if !ok {
@@ -851,10 +852,10 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		voted = false
 	}
 	// 3. stakeReceived
-	stakeReceivedNonces, ok := pool.stakeReceived[from]
+	stakeReceivedNonces, ok := pool.stakeReceived[txOrigin]
 	if !ok {
 		stakeReceivedNonces = make(map[uint]*big.Int)
-		pool.stakeReceived[from] = stakeReceivedNonces
+		pool.stakeReceived[txOrigin] = stakeReceivedNonces
 	}
 	stakeReceived, ok := stakeReceivedNonces[nonce]
 	if !ok {
@@ -888,7 +889,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// Update values (also changes them in data structure)
 	ackWeight.Add(ackWeight, ackValue)
 	stakeReceived.Add(stakeReceived, ackWeight)
-	pool.voted[from][nonce][ackOrigin] = true
+	pool.voted[txOrigin][nonce][ackOrigin] = true
 
 	// If 2/3 of stake has acked, then tx is confirmed.
 	if ackWeight.Cmp(pool.config.QuorumStake) > 0 {
@@ -901,6 +902,11 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 		// Submit ack to multishot contract
 		log.Debug("Submit ack to multishot contract")
+
+		// _, err = contract.Propose(auth, txOrigin, nonce, hash)
+		if err != nil {
+			log.Error("Error while proposing value to Multishot contract.", "error", err)
+		}
 
 		// TODO
 	}

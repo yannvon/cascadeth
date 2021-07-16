@@ -21,17 +21,17 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/eth/downloader"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/consensus/ethash"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/core/rawdb"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/core/vm"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/eth/downloader"
+	"github.com/yannvon/cascadeth/ethdb"
+	"github.com/yannvon/cascadeth/event"
+	"github.com/yannvon/cascadeth/params"
 )
 
 var (

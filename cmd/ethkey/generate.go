@@ -23,9 +23,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/yannvon/cascadeth/accounts/keystore"
+	"github.com/yannvon/cascadeth/cmd/utils"
+	"github.com/yannvon/cascadeth/crypto"
 	"github.com/google/uuid"
 	"gopkg.in/urfave/cli.v1"
 )

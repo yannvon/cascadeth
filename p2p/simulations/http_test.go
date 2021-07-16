@@ -29,13 +29,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/yannvon/cascadeth/event"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/node"
+	"github.com/yannvon/cascadeth/p2p"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/p2p/simulations/adapters"
+	"github.com/yannvon/cascadeth/rpc"
 	"github.com/mattn/go-colorable"
 )
 

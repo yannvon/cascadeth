@@ -31,7 +31,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/params"
 )
 
 // Command line flags to configure the interpreters.

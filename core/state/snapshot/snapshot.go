@@ -24,13 +24,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/core/rawdb"
+	"github.com/yannvon/cascadeth/ethdb"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/metrics"
+	"github.com/yannvon/cascadeth/rlp"
+	"github.com/yannvon/cascadeth/trie"
 )
 
 var (

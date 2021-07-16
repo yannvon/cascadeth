@@ -26,13 +26,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/yannvon/cascadeth/accounts"
+	"github.com/yannvon/cascadeth/core/rawdb"
+	"github.com/yannvon/cascadeth/ethdb"
+	"github.com/yannvon/cascadeth/event"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/p2p"
+	"github.com/yannvon/cascadeth/rpc"
 	"github.com/prometheus/tsdb/fileutil"
 )
 

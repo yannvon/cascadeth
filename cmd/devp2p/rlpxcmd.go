@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/ethereum/go-ethereum/cmd/devp2p/internal/ethtest"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/internal/utesting"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/rlpx"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/cmd/devp2p/internal/ethtest"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/internal/utesting"
+	"github.com/yannvon/cascadeth/p2p"
+	"github.com/yannvon/cascadeth/p2p/rlpx"
+	"github.com/yannvon/cascadeth/rlp"
 	"gopkg.in/urfave/cli.v1"
 )
 

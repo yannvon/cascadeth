@@ -19,9 +19,9 @@ package ethash
 import (
 	"errors"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/hexutil"
+	"github.com/yannvon/cascadeth/core/types"
 )
 
 var errEthashStopped = errors.New("ethash stopped")

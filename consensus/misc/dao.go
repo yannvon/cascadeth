@@ -21,9 +21,9 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/yannvon/cascadeth/core/state"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/params"
 )
 
 var (

@@ -19,12 +19,12 @@ package tests
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/hexutil"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/params"
+	"github.com/yannvon/cascadeth/rlp"
 )
 
 // TransactionTest checks RLP decoding and sender derivation of transactions.

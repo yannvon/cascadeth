@@ -29,12 +29,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p/discover/v4wire"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/netutil"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/p2p/discover/v4wire"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/p2p/netutil"
+	"github.com/yannvon/cascadeth/rlp"
 )
 
 // Errors

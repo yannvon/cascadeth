@@ -28,9 +28,9 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/crypto/ecies"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/crypto/ecies"
+	"github.com/yannvon/cascadeth/rlp"
 	"github.com/stretchr/testify/assert"
 )
 

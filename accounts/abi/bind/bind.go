@@ -30,8 +30,8 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/yannvon/cascadeth/accounts/abi"
+	"github.com/yannvon/cascadeth/log"
 )
 
 // Lang is a target programming language selector to generate bindings for.

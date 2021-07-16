@@ -20,16 +20,16 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/light"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/core/state"
+	"github.com/yannvon/cascadeth/light"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/p2p"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/p2p/enr"
+	"github.com/yannvon/cascadeth/rlp"
+	"github.com/yannvon/cascadeth/trie"
 )
 
 const (

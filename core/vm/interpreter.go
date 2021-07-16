@@ -20,9 +20,9 @@ import (
 	"hash"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/math"
+	"github.com/yannvon/cascadeth/log"
 )
 
 // Config are the configuration options for the Interpreter

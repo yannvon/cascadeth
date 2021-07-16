@@ -22,8 +22,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/ethdb/memorydb"
 )
 
 func TestIterator(t *testing.T) {

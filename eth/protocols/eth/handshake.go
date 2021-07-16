@@ -21,9 +21,9 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/forkid"
-	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/core/forkid"
+	"github.com/yannvon/cascadeth/p2p"
 )
 
 const (

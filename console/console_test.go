@@ -26,15 +26,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/console/prompt"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/eth"
-	"github.com/ethereum/go-ethereum/eth/ethconfig"
-	"github.com/ethereum/go-ethereum/internal/jsre"
-	"github.com/ethereum/go-ethereum/miner"
-	"github.com/ethereum/go-ethereum/node"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/consensus/ethash"
+	"github.com/yannvon/cascadeth/console/prompt"
+	"github.com/yannvon/cascadeth/core"
+	"github.com/yannvon/cascadeth/eth"
+	"github.com/yannvon/cascadeth/eth/ethconfig"
+	"github.com/yannvon/cascadeth/internal/jsre"
+	"github.com/yannvon/cascadeth/miner"
+	"github.com/yannvon/cascadeth/node"
 )
 
 const (

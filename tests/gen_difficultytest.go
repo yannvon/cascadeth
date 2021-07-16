@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/math"
 )
 
 var _ = (*difficultyTestMarshaling)(nil)

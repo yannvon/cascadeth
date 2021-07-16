@@ -30,14 +30,14 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/consensus/clique"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/yannvon/cascadeth/accounts"
+	"github.com/yannvon/cascadeth/common"
+	"github.com/yannvon/cascadeth/common/hexutil"
+	"github.com/yannvon/cascadeth/common/math"
+	"github.com/yannvon/cascadeth/consensus/clique"
+	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/rlp"
 )
 
 type SigFormat struct {

@@ -24,13 +24,13 @@ import (
 	"net"
 	"os"
 
-	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/nat"
-	"github.com/ethereum/go-ethereum/p2p/netutil"
+	"github.com/yannvon/cascadeth/cmd/utils"
+	"github.com/yannvon/cascadeth/crypto"
+	"github.com/yannvon/cascadeth/log"
+	"github.com/yannvon/cascadeth/p2p/discover"
+	"github.com/yannvon/cascadeth/p2p/enode"
+	"github.com/yannvon/cascadeth/p2p/nat"
+	"github.com/yannvon/cascadeth/p2p/netutil"
 )
 
 func main() {
