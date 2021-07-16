@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yannvon/aposteriori/contracts"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/common/prque"
 	"github.com/yannvon/cascadeth/core/state"
@@ -269,7 +270,7 @@ type TxPool struct {
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
 
-	//contract *checkpointoracle.CheckpointOracle
+	multiContract contracts.Multishot
 }
 
 type txpoolResetRequest struct {
