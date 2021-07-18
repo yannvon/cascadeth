@@ -20,10 +20,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/core/state"
 	"github.com/yannvon/cascadeth/params"
-	"github.com/holiman/uint256"
 )
 
 type dummyContractRef struct {

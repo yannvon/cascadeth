@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	gopsutil "github.com/shirou/gopsutil/mem"
 	"github.com/yannvon/cascadeth/accounts"
 	"github.com/yannvon/cascadeth/accounts/keystore"
 	"github.com/yannvon/cascadeth/cmd/utils"
@@ -41,7 +42,6 @@ import (
 	"github.com/yannvon/cascadeth/log"
 	"github.com/yannvon/cascadeth/metrics"
 	"github.com/yannvon/cascadeth/node"
-	gopsutil "github.com/shirou/gopsutil/mem"
 	"gopkg.in/urfave/cli.v1"
 )
 

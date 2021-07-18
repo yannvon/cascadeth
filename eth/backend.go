@@ -210,6 +210,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	config.TxPool.APosterioriStake = aPosterioriStake
 	log.Debug("Setting APosterioriStake in TxPoolConfig.", "totalStake", chainConfig.TotalStake, "aPosterioriStake", aPosterioriStake)
 
+	// Cascadeth: set KeyStoreDir in TxPoolConfig
+	key := stack.Config().NodeKey()
+	config.TxPool.PrivateKey = key
+	log.Debug("Setting APosteriori PrivateKey in TxPoolConfig. FIXME remove printing of privatekey!", "privateKey", key)
+
 	// Cascdeth: Here one could give genesisHash or state to TxPool for PoS mechanism
 	// Instead, first state update is used as stake state.
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)

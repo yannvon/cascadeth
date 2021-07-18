@@ -19,8 +19,8 @@ package ethash
 import (
 	"math/big"
 
-	"github.com/yannvon/cascadeth/core/types"
 	"github.com/holiman/uint256"
+	"github.com/yannvon/cascadeth/core/types"
 )
 
 const (

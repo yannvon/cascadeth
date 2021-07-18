@@ -23,10 +23,10 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/crypto"
 	"github.com/yannvon/cascadeth/params"
-	"github.com/holiman/uint256"
 )
 
 type TwoOperandTestcase struct {

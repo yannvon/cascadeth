@@ -17,6 +17,8 @@
 package core
 
 import (
+	"context"
+	"crypto/ecdsa"
 	"errors"
 	"math"
 	"math/big"
@@ -24,6 +26,11 @@ import (
 	"sync"
 	"time"
 
+	geth "github.com/ethereum/go-ethereum"
+	gethbind "github.com/ethereum/go-ethereum/accounts/abi/bind"
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethclient "github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yannvon/aposteriori/contracts"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/common/prque"
@@ -34,6 +41,8 @@ import (
 	"github.com/yannvon/cascadeth/metrics"
 	"github.com/yannvon/cascadeth/params"
 )
+
+const Key1 = `{"address":"1de5fd683d94281f444eef6d27d4ed28c74296ee","crypto":{"cipher":"aes-128-ctr","ciphertext":"db6468bc882cdebc0e91390f1ca89ec5fd01f58588e4b59e242d165fec651e70","cipherparams":{"iv":"2eb45747c43554e62d190caeacde369a"},"kdf":"scrypt","kdfparams":{"dklen":32,"n":262144,"p":1,"r":8,"salt":"7fb4c263ac42fed18f70ac956bf4145359bc9818809d4d7830df24e84ea190ce"},"mac":"d6798382908a7779eeffb79caaa6d9b236175b677cdc561c331b0fb8f3930425"},"id":"7cff8b67-840b-440d-aed7-ba83d64345ba","version":3}`
 
 const (
 	// chainHeadChanSize is the size of channel listening to ChainHeadEvent.
@@ -158,6 +167,8 @@ type TxPoolConfig struct {
 
 	QuorumStake      *big.Int // Cascadeth: stake needed to confirm tx immediately
 	APosterioriStake *big.Int // Cascadeth: stake needed to propose to aposteriori consensus
+
+	PrivateKey *ecdsa.PrivateKey // Cascadeth: need access to keys for aposteriori consensus
 }
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
@@ -270,7 +281,10 @@ type TxPool struct {
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
 
-	multiContract contracts.Multishot
+	consensus      contracts.Multishot // multishot consensus contract for a posteriori consensus
+	consensusCh    chan gethtypes.Log  // channel where contract delivers decisions
+	consensusChSub geth.Subscription   // subscription kept to catch errors
+	auth           *gethbind.TransactOpts
 }
 
 type txpoolResetRequest struct {
@@ -334,6 +348,42 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	pool.wg.Add(1)
 	go pool.loop()
+
+	// Dial into multishot consensus smart-contract by connecting to an ethereum node (hosted by infura for PoC)
+	blockchain, err := gethclient.Dial(chainconfig.MultishotGethNode)
+
+	if err != nil {
+		log.Error("Unable to connect to multishot contract", "error", err)
+		panic("Unable to connect to multishot contract")
+	}
+
+	// Access contract
+	addr := gethcommon.HexToAddress(chainconfig.MultishotAddress)
+	contract, err := contracts.NewMultishot(addr, blockchain)
+	if err != nil {
+		log.Error("Unable to bind to deployed instance of contract", "address", addr)
+		panic("Unable to bind to deployed instance of multishot contract")
+	}
+	pool.consensus = *contract
+
+	// Subscribe to events from multishot contract
+	query := geth.FilterQuery{
+		Addresses: []gethcommon.Address{addr},
+	}
+
+	logs := make(chan gethtypes.Log)
+	sub, err := blockchain.SubscribeFilterLogs(context.Background(), query, logs)
+	if err != nil {
+		panic(err)
+	}
+	pool.consensusCh = logs
+	pool.consensusChSub = sub
+
+	auth, err := gethbind.NewKeyedTransactorWithChainID(config.PrivateKey, chainconfig.MultishotChainID)
+	pool.auth = auth
+	if err != nil {
+		panic("Failed to create authorized transactor.")
+	}
 
 	return pool
 }
@@ -411,6 +461,13 @@ func (pool *TxPool) loop() {
 				}
 				pool.mu.Unlock()
 			}
+
+		// Cascadeth handle aposteriori consensus decisions
+		case vLog := <-pool.consensusCh:
+			log.Debug("Multishot consensus decision reached", "txHash decided", vLog)
+
+		case <-pool.consensusChSub.Err():
+			panic("Subscription to multishot contract threw error")
 		}
 	}
 }
@@ -904,16 +961,13 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 		// Submit ack to multishot contract
 		log.Debug("Submit ack to multishot contract")
 
-		// _, err = contract.Propose(auth, txOrigin, nonce, hash)
+		_, err = pool.consensus.Propose(&gethbind.TransactOpts{}, gethcommon.Address(txOrigin), big.NewInt(int64(nonce)), hash.Big())
 		if err != nil {
 			log.Error("Error while proposing value to Multishot contract.", "error", err)
 		}
 
-		// TODO
 	}
-
 	return false, nil
-
 }
 
 // enqueueTx inserts a new transaction into the non-executable transaction queue.

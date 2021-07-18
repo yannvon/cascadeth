@@ -55,7 +55,9 @@ check_balances_peerview () {
 cd ~/Documents/cascadeth
 
 # Compile and install geth
-go install -v ./cmd/geth
+# allow multiple definitions, since both cascadeth and geth access same C source files
+# https://stackoverflow.com/questions/56318343/golang-multiple-definition-of-cgo-ported-package
+go install --ldflags '-extldflags "-Wl,--allow-multiple-definition"' -v ./cmd/geth
 
 # Delete database before init
 rm -r "data/data-cascade-1/geth"
