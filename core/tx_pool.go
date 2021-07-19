@@ -283,10 +283,10 @@ type TxPool struct {
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
 
-	consensus      contracts.Multishot // multishot consensus contract for a posteriori consensus
-	consensusCh    chan gethtypes.Log  // channel where contract delivers decisions
-	consensusChSub geth.Subscription   // subscription kept to catch errors
-	auth           *gethbind.TransactOpts
+	consensus         contracts.Multishot // multishot consensus contract for a posteriori consensus
+	consensusCh       chan gethtypes.Log  // channel where contract delivers decisions
+	consensusChSubErr <-chan error        // subscription kept to catch errors
+	auth              *gethbind.TransactOpts
 }
 
 type txpoolResetRequest struct {
@@ -346,10 +346,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		}
 	}
 
-	if config.PerformAposterioiriConsensus {
-		pool.initMulitshot(config, chainconfig)
-		log.Debug("A posteriori consensus setup at TxPool.")
-	}
+	// Cascadeth: Init connection to smart contract.
+	// Note that if something goes wrong, we simply work without a poteriori consensus
+	pool.initMulitshot(&config, chainconfig)
 
 	// Subscribe events from blockchain and start the main event loop.
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
@@ -359,14 +358,24 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	return pool
 }
 
-func (pool *TxPool) initMulitshot(config TxPoolConfig, chainconfig *params.ChainConfig) {
+func (pool *TxPool) initMulitshot(config *TxPoolConfig, chainconfig *params.ChainConfig) {
+	if !config.PerformAposterioiriConsensus {
+
+		// Create two channels such that loop works as expected even without a posteriori consensus.
+		pool.consensusCh = make(chan gethtypes.Log)
+		pool.consensusChSubErr = make(<-chan error)
+
+	} else {
+		log.Debug("A posteriori consensus setup at TxPool.")
+	}
 
 	// Dial into multishot consensus smart-contract by connecting to an ethereum node (hosted by infura for PoC)
 	blockchain, err := gethclient.Dial(chainconfig.MultishotGethNode)
 
 	if err != nil {
 		log.Error("Unable to connect to multishot contract", "error", err)
-		panic("Unable to connect to multishot contract")
+		config.PerformAposterioiriConsensus = false
+		return
 	}
 
 	// Access contract
@@ -374,7 +383,8 @@ func (pool *TxPool) initMulitshot(config TxPoolConfig, chainconfig *params.Chain
 	contract, err := contracts.NewMultishot(addr, blockchain)
 	if err != nil {
 		log.Error("Unable to bind to deployed instance of contract", "address", addr)
-		panic("Unable to bind to deployed instance of multishot contract")
+		config.PerformAposterioiriConsensus = false
+		return
 	}
 	pool.consensus = *contract
 
@@ -386,15 +396,19 @@ func (pool *TxPool) initMulitshot(config TxPoolConfig, chainconfig *params.Chain
 	logs := make(chan gethtypes.Log)
 	sub, err := blockchain.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		panic(err)
+		log.Error("Unable to subscribe to geth node specified.", "address", addr)
+		config.PerformAposterioiriConsensus = false
+		return
 	}
 	pool.consensusCh = logs
-	pool.consensusChSub = sub
+	pool.consensusChSubErr = sub.Err()
 
 	auth, err := gethbind.NewKeyedTransactorWithChainID(config.PrivateKey, chainconfig.MultishotChainID)
 	pool.auth = auth
 	if err != nil {
-		panic("Failed to create authorized transactor.")
+		log.Error("Failed to create authorized transactor for multishot contract.")
+		config.PerformAposterioiriConsensus = false
+		return
 	}
 }
 
@@ -478,7 +492,7 @@ func (pool *TxPool) loop() {
 
 			// TODO
 
-		case <-pool.consensusChSub.Err():
+		case <-pool.consensusChSubErr:
 			panic("Subscription to multishot contract threw error")
 		}
 	}
