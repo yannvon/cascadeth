@@ -168,6 +168,8 @@ type TxPoolConfig struct {
 	QuorumStake      *big.Int // Cascadeth: stake needed to confirm tx immediately
 	APosterioriStake *big.Int // Cascadeth: stake needed to propose to aposteriori consensus
 
+	PerformAposterioiriConsensus bool // Set whether we need to resolve double-spends or not
+
 	PrivateKey *ecdsa.PrivateKey // Cascadeth: need access to keys for aposteriori consensus
 }
 
@@ -344,10 +346,20 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		}
 	}
 
+	if config.PerformAposterioiriConsensus {
+		pool.initMulitshot(config, chainconfig)
+		log.Debug("A posteriori consensus setup at TxPool.")
+	}
+
 	// Subscribe events from blockchain and start the main event loop.
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	pool.wg.Add(1)
 	go pool.loop()
+
+	return pool
+}
+
+func (pool *TxPool) initMulitshot(config TxPoolConfig, chainconfig *params.ChainConfig) {
 
 	// Dial into multishot consensus smart-contract by connecting to an ethereum node (hosted by infura for PoC)
 	blockchain, err := gethclient.Dial(chainconfig.MultishotGethNode)
@@ -384,8 +396,6 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	if err != nil {
 		panic("Failed to create authorized transactor.")
 	}
-
-	return pool
 }
 
 // loop is the transaction pool's main event loop, waiting for and reacting to
@@ -465,6 +475,8 @@ func (pool *TxPool) loop() {
 		// Cascadeth handle aposteriori consensus decisions
 		case vLog := <-pool.consensusCh:
 			log.Debug("Multishot consensus decision reached", "txHash decided", vLog)
+
+			// TODO
 
 		case <-pool.consensusChSub.Err():
 			panic("Subscription to multishot contract threw error")
@@ -956,9 +968,8 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	}
 
 	// If 4/5 of stake has acked and tx is not yet confirmed, we launch a posteriori consensus to avoid potential deadlocks.
-	if stakeReceived.Cmp(pool.config.APosterioriStake) > 0 {
+	if pool.config.PerformAposterioiriConsensus && stakeReceived.Cmp(pool.config.APosterioriStake) > 0 {
 
-		// Submit ack to multishot contract
 		log.Debug("Submit ack to multishot contract")
 
 		_, err = pool.consensus.Propose(&gethbind.TransactOpts{}, gethcommon.Address(txOrigin), big.NewInt(int64(nonce)), hash.Big())

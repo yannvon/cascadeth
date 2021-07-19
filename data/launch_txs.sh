@@ -60,6 +60,7 @@ cd ~/Documents/cascadeth
 go install --ldflags '-extldflags "-Wl,--allow-multiple-definition"' -v ./cmd/geth
 
 # Delete database before init
+
 rm -r "data/data-cascade-1/geth"
 rm -r "data/data-cascade-2/geth"
 rm -r "data/data-cascade-3/geth"
@@ -91,7 +92,7 @@ node2=$!
 node3=$!
 
 # sleep $init_time
-sleep 1
+sleep 2
 
 # Note: nodiscover adds stuff to enode, important for it to work
 

@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/ethereum/go-ethereum/accounts/usbwallet"
 	"github.com/yannvon/cascadeth/accounts/scwallet"
-	"github.com/yannvon/cascadeth/accounts/usbwallet"
 	"github.com/yannvon/cascadeth/common/hexutil"
 	"github.com/yannvon/cascadeth/console/prompt"
 	"github.com/yannvon/cascadeth/internal/jsre"

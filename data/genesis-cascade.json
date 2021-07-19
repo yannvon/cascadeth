@@ -14,7 +14,7 @@
     },
     "totalStake": 23000000000000000000,
     "multishotAddress": "0x5a79615D346bb6924ae8CF3B665380ba3C4FBFc8",
-    "multishotGethNode": "https://rinkeby.infura.io/v3/f9b32e6b21e740eab75d12e2e0318f3d",
+    "multishotGethNode": "wss://rinkeby.infura.io/ws/v3/f9b32e6b21e740eab75d12e2e0318f3d",
     "multishotChainId": 4
   },
   "difficulty": "1",

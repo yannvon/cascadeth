@@ -28,7 +28,6 @@ import (
 	"github.com/yannvon/cascadeth/accounts"
 	"github.com/yannvon/cascadeth/accounts/keystore"
 	"github.com/yannvon/cascadeth/accounts/scwallet"
-	"github.com/yannvon/cascadeth/accounts/usbwallet"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/common/hexutil"
 	"github.com/yannvon/cascadeth/internal/ethapi"
@@ -139,27 +138,7 @@ func StartClefAccountManager(ksLocation string, nousb, lightKDF bool, scpath str
 		backends = append(backends, keystore.NewKeyStore(ksLocation, n, p))
 	}
 	if !nousb {
-		// Start a USB hub for Ledger hardware wallets
-		if ledgerhub, err := usbwallet.NewLedgerHub(); err != nil {
-			log.Warn(fmt.Sprintf("Failed to start Ledger hub, disabling: %v", err))
-		} else {
-			backends = append(backends, ledgerhub)
-			log.Debug("Ledger support enabled")
-		}
-		// Start a USB hub for Trezor hardware wallets (HID version)
-		if trezorhub, err := usbwallet.NewTrezorHubWithHID(); err != nil {
-			log.Warn(fmt.Sprintf("Failed to start HID Trezor hub, disabling: %v", err))
-		} else {
-			backends = append(backends, trezorhub)
-			log.Debug("Trezor support enabled via HID")
-		}
-		// Start a USB hub for Trezor hardware wallets (WebUSB version)
-		if trezorhub, err := usbwallet.NewTrezorHubWithWebUSB(); err != nil {
-			log.Warn(fmt.Sprintf("Failed to start WebUSB Trezor hub, disabling: %v", err))
-		} else {
-			backends = append(backends, trezorhub)
-			log.Debug("Trezor support enabled via WebUSB")
-		}
+		panic("no usb wallets supported")
 	}
 
 	// Start a smart card hub
@@ -328,9 +307,7 @@ func (api *SignerAPI) startUSBListener() {
 	for _, wallet := range am.Wallets() {
 		if err := wallet.Open(""); err != nil {
 			log.Warn("Failed to open wallet", "url", wallet.URL(), "err", err)
-			if err == usbwallet.ErrTrezorPINNeeded {
-				go api.openTrezor(wallet.URL())
-			}
+
 		}
 	}
 	go api.derivationLoop(eventCh)
@@ -344,9 +321,7 @@ func (api *SignerAPI) derivationLoop(events chan accounts.WalletEvent) {
 		case accounts.WalletArrived:
 			if err := event.Wallet.Open(""); err != nil {
 				log.Warn("New wallet appeared, failed to open", "url", event.Wallet.URL(), "err", err)
-				if err == usbwallet.ErrTrezorPINNeeded {
-					go api.openTrezor(event.Wallet.URL())
-				}
+
 			}
 		case accounts.WalletOpened:
 			status, _ := event.Wallet.Status()
