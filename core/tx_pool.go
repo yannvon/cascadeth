@@ -42,8 +42,6 @@ import (
 	"github.com/yannvon/cascadeth/params"
 )
 
-const Key1 = `{"address":"1de5fd683d94281f444eef6d27d4ed28c74296ee","crypto":{"cipher":"aes-128-ctr","ciphertext":"db6468bc882cdebc0e91390f1ca89ec5fd01f58588e4b59e242d165fec651e70","cipherparams":{"iv":"2eb45747c43554e62d190caeacde369a"},"kdf":"scrypt","kdfparams":{"dklen":32,"n":262144,"p":1,"r":8,"salt":"7fb4c263ac42fed18f70ac956bf4145359bc9818809d4d7830df24e84ea190ce"},"mac":"d6798382908a7779eeffb79caaa6d9b236175b677cdc561c331b0fb8f3930425"},"id":"7cff8b67-840b-440d-aed7-ba83d64345ba","version":3}`
-
 const (
 	// chainHeadChanSize is the size of channel listening to ChainHeadEvent.
 	chainHeadChanSize = 10
@@ -129,6 +127,12 @@ var (
 
 // TxStatus is the current status of a transaction as seen by the pool.
 type TxStatus uint
+
+// Unconfirmed is a possible tx with the current ack weight seen on the network
+type Unconfirmed struct {
+	ackWeight   *big.Int
+	potentialTx *types.Transaction
+}
 
 const (
 	TxStatusUnknown TxStatus = iota
@@ -264,15 +268,15 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	confirmed     types.Transactions                                   // All confirmed transactions
-	unconfirmed   map[common.Address]map[uint]map[common.Hash]*big.Int // All unconfirmed transactions FIXME simplified version
-	stakeReceived map[common.Address]map[uint]*big.Int                 // Keeping track of stake already received
-	voted         map[common.Address]map[uint]map[common.Address]bool  // Keeping track of which validators have already voted: Nonce represented as uint since big.Ints can't be compared
-	pending       map[common.Address]*txList                           // All currently processable transactions
-	queue         map[common.Address]*txList                           // Queued but non-processable transactions
-	beats         map[common.Address]time.Time                         // Last heartbeat from each known account
-	all           *txLookup                                            // All transactions to allow lookups
-	priced        *txPricedList                                        // All transactions sorted by price
+	confirmed     types.Transactions                                      // All confirmed transactions
+	unconfirmed   map[common.Address]map[uint]map[common.Hash]Unconfirmed // All unconfirmed transactions with their associated ack weight. Note that a copy of the tx is only kept for aposteriori consensus
+	stakeReceived map[common.Address]map[uint]*big.Int                    // Keeping track of stake already received
+	voted         map[common.Address]map[uint]map[common.Address]bool     // Keeping track of which validators have already voted: Nonce represented as uint since big.Ints can't be compared
+	pending       map[common.Address]*txList                              // All currently processable transactions
+	queue         map[common.Address]*txList                              // Queued but non-processable transactions
+	beats         map[common.Address]time.Time                            // Last heartbeat from each known account
+	all           *txLookup                                               // All transactions to allow lookups
+	priced        *txPricedList                                           // All transactions sorted by price
 
 	chainHeadCh     chan ChainHeadEvent
 	chainHeadSub    event.Subscription
@@ -306,7 +310,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chain:            chain,
 		signer:           types.LatestSigner(chainconfig),
 		confirmed:        make([]*types.Transaction, 0),
-		unconfirmed:      make(map[common.Address]map[uint]map[common.Hash]*big.Int),
+		unconfirmed:      make(map[common.Address]map[uint]map[common.Hash]Unconfirmed),
 		stakeReceived:    make(map[common.Address]map[uint]*big.Int),
 		voted:            make(map[common.Address]map[uint]map[common.Address]bool),
 		pending:          make(map[common.Address]*txList),
@@ -373,7 +377,7 @@ func (pool *TxPool) initMulitshot(config *TxPoolConfig, chainconfig *params.Chai
 	blockchain, err := gethclient.Dial(chainconfig.MultishotGethNode)
 
 	if err != nil {
-		log.Error("Unable to connect to multishot contract", "error", err)
+		log.Error("Unable to connect to multishot contract. No a posteriori consensus will be performed.", "error", err)
 		config.PerformAposterioiriConsensus = false
 		return
 	}
@@ -382,7 +386,7 @@ func (pool *TxPool) initMulitshot(config *TxPoolConfig, chainconfig *params.Chai
 	addr := gethcommon.HexToAddress(chainconfig.MultishotAddress)
 	contract, err := contracts.NewMultishot(addr, blockchain)
 	if err != nil {
-		log.Error("Unable to bind to deployed instance of contract", "address", addr)
+		log.Error("Unable to bind to deployed instance of contract. No a posteriori consensus will be performed.", "address", addr)
 		config.PerformAposterioiriConsensus = false
 		return
 	}
@@ -396,7 +400,7 @@ func (pool *TxPool) initMulitshot(config *TxPoolConfig, chainconfig *params.Chai
 	logs := make(chan gethtypes.Log)
 	sub, err := blockchain.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		log.Error("Unable to subscribe to geth node specified.", "address", addr)
+		log.Error("Unable to subscribe to geth node specified. No a posteriori consensus will be performed.", "address", addr)
 		config.PerformAposterioiriConsensus = false
 		return
 	}
@@ -406,7 +410,7 @@ func (pool *TxPool) initMulitshot(config *TxPoolConfig, chainconfig *params.Chai
 	auth, err := gethbind.NewKeyedTransactorWithChainID(config.PrivateKey, chainconfig.MultishotChainID)
 	pool.auth = auth
 	if err != nil {
-		log.Error("Failed to create authorized transactor for multishot contract.")
+		log.Error("Failed to create authorized transactor for multishot contract. No a posteriori consensus will be performed.")
 		config.PerformAposterioiriConsensus = false
 		return
 	}
@@ -488,9 +492,28 @@ func (pool *TxPool) loop() {
 
 		// Cascadeth handle aposteriori consensus decisions
 		case vLog := <-pool.consensusCh:
-			log.Debug("Multishot consensus decision reached", "txHash decided", vLog)
+			log.Debug("Multishot consensus decision reached", "txHash decided", new(big.Int).SetBytes(vLog.Data))
 
-			// TODO
+			decided, _ := pool.consensus.ParseDecided(vLog)
+			unconfirmed := pool.unconfirmed[common.Address(decided.TxOrigin)][uint(decided.TxNonce.Uint64())][common.BigToHash(decided.Decision)]
+
+			// Here ideally we have already seen the tx that was decided.
+			// Note that here a cornercase exists where we never see this transaction
+			// Cornercase where at least 6 (?) double spend tx, where no transaction receives more than f.
+			// In that case a malicious actor might only have proposed it to the contract and not distributed it.
+			// However this is clear malicious behavior and I deem it appropriate to not resolve such cases
+			// Of course another easier, but more costly, solution would be to submit tx to multishot contract.
+			// For now however I chose the option to not act at all, and thus effectively blocking the account in question.
+
+			// However, a more likely and non-malicious edge case might still arrise, where we indeed haven't seen the tx yet.
+			// (If we have yet to see more than 4/5th of acks)
+			// In this case we add it to a different data structure such that it can be immediately processed once we get it.
+			if unconfirmed.potentialTx == nil {
+				// Small hack: Add ackWeight big enough such that it immediately passes next test, once we receive corresponding tx
+				unconfirmed.ackWeight.Add(unconfirmed.ackWeight, new(big.Int).Add(pool.config.QuorumStake, big.NewInt(1)))
+			} else {
+				pool.confirmed = append(pool.confirmed, unconfirmed.potentialTx)
+			}
 
 		case <-pool.consensusChSubErr:
 			panic("Subscription to multishot contract threw error")
@@ -907,18 +930,18 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	// 1. ackWeight
 	unconfirmedNonces, ok := pool.unconfirmed[txOrigin]
 	if !ok {
-		unconfirmedNonces = make(map[uint]map[common.Hash]*big.Int)
+		unconfirmedNonces = make(map[uint]map[common.Hash]Unconfirmed)
 		pool.unconfirmed[txOrigin] = unconfirmedNonces
 	}
 	unconfirmedHashes, ok := unconfirmedNonces[nonce]
 	if !ok {
-		unconfirmedHashes = make(map[common.Hash]*big.Int)
+		unconfirmedHashes = make(map[common.Hash]Unconfirmed)
 		unconfirmedNonces[nonce] = unconfirmedHashes
 	}
-	ackWeight, ok := unconfirmedHashes[hash]
+	unconfirmed, ok := unconfirmedHashes[hash]
 	if !ok {
-		ackWeight = big.NewInt(0)
-		unconfirmedHashes[hash] = ackWeight
+		unconfirmed = Unconfirmed{big.NewInt(0), nil}
+		unconfirmedHashes[hash] = unconfirmed
 	}
 	// 2. voted
 	votedNonces, ok := pool.voted[txOrigin]
@@ -948,14 +971,14 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	}
 
 	// Start operation
-	if ackWeight.Cmp(big.NewInt(0)) != 0 {
+	if unconfirmed.ackWeight.Cmp(big.NewInt(0)) != 0 {
 
-		log.Debug("Cascadeth: Ack inserted for existing tx", "current ackWeight", ackWeight)
+		log.Debug("Cascadeth: Ack inserted for existing tx", "current ackWeight", unconfirmed.ackWeight)
 
 		// Verify that more than quorum are in favor
-		if ackWeight.Cmp(pool.config.QuorumStake) > 0 {
-			log.Debug("Cascadeth: tx has been confirmed & executed before ! This code should not be reached, as tx validity was checked before. (can be reached if single ack is enough to validate, as it doesn't change state immediately and is instead added to confirmed.)")
-			return false, nil
+		if unconfirmed.ackWeight.Cmp(pool.config.QuorumStake) > 0 {
+			log.Debug("Cascadeth: tx already has enough ackWeight. Multishot contract has already decided, but we hadn't received tx previously. (or coding error) (can also be reached if single ack is enough to validate, as it doesn't change state immediately and is instead added to confirmed.)")
+			// return false, nil
 		}
 	} else {
 		log.Debug("Cascadeth: Ack for new tx encountered.")
@@ -971,12 +994,15 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	log.Debug("Ack received.", "value", ackValue, "txhash", hash, "ackOrigin", ackOrigin)
 
 	// Update values (also changes them in data structure)
-	ackWeight.Add(ackWeight, ackValue)
-	stakeReceived.Add(stakeReceived, ackWeight)
+	unconfirmed.ackWeight.Add(unconfirmed.ackWeight, ackValue)
+	if unconfirmed.potentialTx == nil {
+		unconfirmed.potentialTx = tx
+	}
+	stakeReceived.Add(stakeReceived, unconfirmed.ackWeight)
 	pool.voted[txOrigin][nonce][ackOrigin] = true
 
 	// If 2/3 of stake has acked, then tx is confirmed.
-	if ackWeight.Cmp(pool.config.QuorumStake) > 0 {
+	if unconfirmed.ackWeight.Cmp(pool.config.QuorumStake) > 0 {
 		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
 		return true, nil
 	}

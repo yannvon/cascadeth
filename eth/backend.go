@@ -220,7 +220,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		// Cascadeth: set KeyStoreDir in TxPoolConfig
 		key := stack.Config().NodeKey()
 		config.TxPool.PrivateKey = key
-		log.Debug("Setting APosteriori PrivateKey in TxPoolConfig. FIXME remove printing of privatekey!", "privateKey", key)
+		log.Debug("Setting APosteriori PrivateKey in TxPoolConfig.")
 
 	} else {
 		config.TxPool.PerformAposterioiriConsensus = false
