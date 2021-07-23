@@ -1003,7 +1003,10 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 	// If 2/3 of stake has acked, then tx is confirmed.
 	if unconfirmed.ackWeight.Cmp(pool.config.QuorumStake) > 0 {
-		// TODO Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
+
+		// Empty three main datastructures
+		pool.cleanTx(txOrigin, nonce)
+
 		return true, nil
 	}
 
@@ -1019,6 +1022,14 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 	}
 	return false, nil
+}
+
+func (pool *TxPool) cleanTx(txOrigin common.Address, txNonce uint) {
+	// Here we should remove all tx from the unconfirmed datastructure that have same sender and nonce.
+	// Note that there are no concurrency issues, as we perform processing immediately. (other wise we only remove nonce-1)
+	pool.voted[txOrigin][txNonce] = nil
+	pool.unconfirmed[txOrigin][txNonce] = nil
+	pool.stakeReceived[txOrigin][txNonce] = nil
 }
 
 // enqueueTx inserts a new transaction into the non-executable transaction queue.

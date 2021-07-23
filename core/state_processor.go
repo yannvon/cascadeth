@@ -65,7 +65,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 	// FIXME non-mining nodes never reorg & thus never update state. This is a quick fix for that.
 	log.Debug("Updating txpool state", "state hash", statedb.IntermediateRoot(false))
-	p.txpool.currentState = statedb	
+	p.txpool.currentState = statedb
 
 	var (
 		receipts types.Receipts
@@ -173,6 +173,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
+
+		// Clean other datastructures
+		// FIXME this doesn't seem to make use of caching, but couldn't yet figure out how to do it better.
+		txOrigin, err := types.Sender(p.txpool.signer, tx) // Guarenteed to succed, as already done in validation step
+		if err != nil {
+			panic(ErrInvalidSender)
+		}
+		p.txpool.cleanTx(txOrigin, uint(tx.Nonce()))
 	}
 	// Remove all txa that weren't saved due to insufficient funds
 	p.txpool.confirmed = p.txpool.confirmed[:n]
