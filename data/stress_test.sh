@@ -64,19 +64,13 @@ go install --ldflags '-extldflags "-Wl,--allow-multiple-definition"' -v ./cmd/ge
 rm -r "data/data-cascade-1/geth"
 rm -r "data/data-cascade-2/geth"
 rm -r "data/data-cascade-3/geth"
-if [ $debug -eq 1 ]
-then
-  rm -r "data/data-cascade-4/geth"
-fi
-# Init blockchain from genesis
-/home/yann/go/bin/geth init --datadir data/data-cascade-1 data/genesis-cascade.json
-/home/yann/go/bin/geth init --datadir data/data-cascade-2 data/genesis-cascade.json
-/home/yann/go/bin/geth init --datadir data/data-cascade-3 data/genesis-cascade.json
-if [ $debug -eq 1 ]
-then
-  /home/yann/go/bin/geth init --datadir data/data-cascade-4 data/genesis-cascade.json
-fi
+rm -r "data/data-cascade-4/geth"
 
+# Init blockchain from genesis
+/home/yann/go/bin/geth init --datadir data/data-cascade-1 data/genesis-stress.json
+/home/yann/go/bin/geth init --datadir data/data-cascade-2 data/genesis-stress.json
+/home/yann/go/bin/geth init --datadir data/data-cascade-3 data/genesis-stress.json
+/home/yann/go/bin/geth init --datadir data/data-cascade-4 data/genesis-stress.json
 
 
 # Note: bootnodes are not what I believed them to be, see https://geth.ethereum.org/docs/getting-started/private-net
@@ -98,8 +92,7 @@ node2=$!
 node3=$!
 
 # sleep $init_time
-# Note that the init time needed can depend on the connection to the geth network and the multishot smart contract !
-sleep 4
+sleep 10
 
 # Note: nodiscover adds stuff to enode, important for it to work
 
@@ -153,19 +146,17 @@ sleep 10
 
 # Send transactions
 echo "Initiate transactions."
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
 
-sleep 10
-
-check_balances_peerview $node1_ipc "peer1 view"
-check_balances_peerview $node2_ipc "peer2 view"
-check_balances_peerview $node3_ipc "peer3 view"
-
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
-/home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
+for number in {1..100}
+do
+  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-1/geth1.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[1], value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
+  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-2/geth2.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
+  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/data-cascade-3/geth3.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: '5da65eeb457543804c48b94aa17a7432cd3285d3', value: 2000000000000000000, gas: 21000, gasPrice: 100000000000})"
+  sleep 2
+  check_balances_peerview $node1_ipc "peer1 view"
+  check_balances_peerview $node2_ipc "peer2 view"
+  check_balances_peerview $node3_ipc "peer3 view"
+done
 
 
 # Cleanup
