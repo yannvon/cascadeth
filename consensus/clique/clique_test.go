@@ -111,3 +111,93 @@ func TestReimportMirroredState(t *testing.T) {
 		t.Fatalf("chain head mismatch: have %d, want %d", head, 3)
 	}
 }
+func TestAPosterioriConsensus(t *testing.T) {
+	// Initialize a Clique chain with a single signer
+	var (
+		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		key2, _ = crypto.HexToECDSA("8a1f9a8f95be41cd7ccb6168179afb4504aefe388d1e14474d32c45c72ce7b7a")
+		key3, _ = crypto.HexToECDSA("49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee")
+		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+		addr2   = crypto.PubkeyToAddress(key2.PublicKey)
+		addr3   = crypto.PubkeyToAddress(key3.PublicKey)
+	)
+
+	cliqueConfig := &params.CliqueConfig{
+		Period: 2,
+		Epoch:  3000,
+	}
+	chainConfig := &params.ChainConfig{
+		ChainID:           big.NewInt(15),
+		Clique:            cliqueConfig,
+		MultishotChainID:  big.NewInt(4),
+		MultishotAddress:  "0x5a79615D346bb6924ae8CF3B665380ba3C4FBFc8",
+		MultishotGethNode: "wss://rinkeby.infura.io/ws/v3/f9b32e6b21e740eab75d12e2e0318f3d",
+		TotalStake:        big.NewInt(300000000000000000),
+	}
+
+	var (
+		db     = rawdb.NewMemoryDatabase()
+		engine = New(chainConfig.Clique, db) // New(params.AllCliqueProtocolChanges.Clique, db)
+		signer = new(types.HomesteadSigner)
+	)
+	genspec := &core.Genesis{
+		ExtraData: make([]byte, extraVanity+3*common.AddressLength+extraSeal),
+		Alloc: map[common.Address]core.GenesisAccount{
+			addr1: {Balance: big.NewInt(100000000000000000)},
+			addr2: {Balance: big.NewInt(100000000000000000)},
+			addr3: {Balance: big.NewInt(100000000000000000)},
+		},
+		Config: chainConfig,
+	}
+	copy(genspec.ExtraData[extraVanity:], addr1[:])
+	copy(genspec.ExtraData[extraVanity+common.AddressLength:], addr2[:])
+	copy(genspec.ExtraData[extraVanity+2*common.AddressLength:], addr3[:])
+
+	genesis := genspec.MustCommit(db)
+
+	// Generate a batch of blocks, each properly signed
+	chain, _ := core.NewBlockChain(db, nil, chainConfig, engine, vm.Config{}, nil, nil)
+	defer chain.Stop()
+
+	blocks1, _ := core.GenerateChain(chainConfig, genesis, engine, db, 3, func(i int, block *core.BlockGen) {
+		// The chain maker doesn't have access to a chain, so the difficulty will be
+		// lets unset (nil). Set it here to the correct value.
+		block.SetDifficulty(diffInTurn)
+
+		// We want to simulate an empty middle block, having the same state as the
+		// first one. The last is needs a state change again to force a reorg.
+		if i != 1 {
+			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(addr1), common.Address{0x00}, new(big.Int), params.TxGas, nil, nil), signer, key1)
+			if err != nil {
+				panic(err)
+			}
+			block.AddTxWithChain(chain, tx)
+		}
+	})
+	for i, block := range blocks1 {
+		header := block.Header()
+		if i > 0 {
+			header.ParentHash = blocks1[i-1].Hash()
+		}
+		header.Extra = make([]byte, extraVanity+extraSeal)
+		header.Difficulty = diffInTurn
+
+		sig, _ := crypto.Sign(SealHash(header).Bytes(), key1)
+		copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+		blocks1[i] = block.WithSeal(header)
+	}
+	// Insert the first two blocks and make sure the chain is valid
+	db = rawdb.NewMemoryDatabase()
+	genspec.MustCommit(db)
+
+	chain, _ = core.NewBlockChain(db, nil, chainConfig, engine, vm.Config{}, nil, nil)
+	defer chain.Stop()
+
+	if _, err := chain.InsertChain(blocks1[:2]); err != nil {
+		t.Fatalf("failed to insert initial blocks: %v", err)
+	}
+	if head := chain.CurrentBlock().NumberU64(); head != 2 {
+		t.Fatalf("chain head mismatch: have %d, want %d", head, 2)
+	}
+
+}

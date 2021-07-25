@@ -692,6 +692,16 @@ Also compare advantages to Rollups, as I believe they are somewhat similar.
 - [ ] setup developement env
 - [ ] write first contract verison called multishot -> new git repo
 
+### 25.07
+
+- [ ] Create test for multishot contract
+- [x] Think about removing sidechain insert problem
+  - [ ] We need Sync to remove all problems, as reorderings trigger insert sidechain immediately. (and break system)
+  - [ ] Also need to remove trie caching for sidechain, as this would explode memory longterm. (can't simply make constant larger)
+  - [ ] Doesn't seem realistic for now
+- [ ] Create argument why smart contracts are impossible with a posteriori consensus
+- [ ] Deploying to aws instances ? for fun
+
 
 
 ## Lazy consensus

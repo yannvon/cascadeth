@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/yannvon/cascadeth/common"
 	"github.com/yannvon/cascadeth/common/mclock"
 	"github.com/yannvon/cascadeth/common/prque"
@@ -44,7 +45,6 @@ import (
 	"github.com/yannvon/cascadeth/params"
 	"github.com/yannvon/cascadeth/rlp"
 	"github.com/yannvon/cascadeth/trie"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
