@@ -57,3 +57,5 @@ profile.cov
 /data/geth1.log
 /data/geth2.log
 /data/geth3.log
+
+/data/benchmark/datadir/

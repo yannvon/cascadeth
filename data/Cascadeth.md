@@ -702,6 +702,14 @@ Also compare advantages to Rollups, as I believe they are somewhat similar.
 - [ ] Create argument why smart contracts are impossible with a posteriori consensus
 - [ ] Deploying to aws instances ? for fun
 
+### 26.07
+
+Working on intro & context of report.
+
+### 27.07
+
+:O Astro has better message complexity O(n) by only acking to emitter of tx. (Stronger crypto primitives) Emitter then commits by sending all acks. 
+
 
 
 ## Lazy consensus
