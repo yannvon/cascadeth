@@ -2,7 +2,7 @@
 
 # variables
 verbosity=4
-debug=0
+init=1
 
 # Note: Accounts must already be present
 init_time=2
@@ -13,6 +13,11 @@ bootnodes="enode://eabfe0c1deadd40b63b4405789ef44c4a5109d7de93bcec80c4d7332d5094
 
 tx_str_1="web3.fromWei(eth.getBalance('"
 tx_str_2="'),'ether')"
+
+ipc_str_1="/home/yann/Documents/cascadeth/data/benchmark/datadir/node"
+ipc_str_2="/geth"
+ipc_str_3=".ipc"
+
 
 
 
@@ -34,6 +39,33 @@ cd ~/Documents/cascadeth
 # https://stackoverflow.com/questions/56318343/golang-multiple-definition-of-cgo-ported-package
 go install --ldflags '-extldflags "-Wl,--allow-multiple-definition"' -v ./cmd/geth
 
+if [ $init -eq 1 ]
+then
+  rm -r "data/benchmark/datadir/node0/geth"
+  rm -r "data/benchmark/datadir/node1/geth"
+  rm -r "data/benchmark/datadir/node2/geth"
+  rm -r "data/benchmark/datadir/node3/geth"
+  rm -r "data/benchmark/datadir/node4/geth"
+  rm -r "data/benchmark/datadir/node5/geth"
+  rm -r "data/benchmark/datadir/node6/geth"
+  rm -r "data/benchmark/datadir/node7/geth"
+  rm -r "data/benchmark/datadir/node8/geth"
+  rm -r "data/benchmark/datadir/node9/geth"
+
+
+  # Init blockchain from genesis
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node0 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node1 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node2 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node3 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node4 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node5 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node6 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node7 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node8 data/benchmark/genesis.json
+  /home/yann/go/bin/geth init --datadir data/benchmark/datadir/node9 data/benchmark/genesis.json
+
+fi
 
 
 # Note: bootnodes are not what I believed them to be, see https://geth.ethereum.org/docs/getting-started/private-net
@@ -59,7 +91,7 @@ node2=$!
 node3=$!
 
 # sleep $init_time
-sleep 100
+sleep 10
 
 # Note: nodiscover adds stuff to enode, important for it to work
 
@@ -76,10 +108,14 @@ sleep 100
 /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/benchmark/datadir/node2/geth2.ipc --exec "admin.peers"
 
 
+# Start mining
+echo "Start mining."
+for i in $(seq 0 2)
+do
+  /home/yann/go/bin/geth attach $ipc_str_1$i$ipc_str_2$i$ipc_str_3 --exec "miner.start(0)"
+done
 
-
-
-
+sleep 100
 
 
 

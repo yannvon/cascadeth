@@ -754,6 +754,7 @@ func (pool *TxPool) validateAck(tx *types.Transaction, local bool) error {
 	}
 	// Make sure the transaction is signed properly.
 	from, err := types.Sender(pool.signer, tx)
+	log.Debug("Validate Ack.", "from", from, "nonce", tx.Nonce(), "to", tx.To())
 	if err != nil {
 		return ErrInvalidSender
 	}
