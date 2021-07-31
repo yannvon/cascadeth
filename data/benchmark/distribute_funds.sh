@@ -12,13 +12,11 @@ do
 done
 
 # Get funds to all accounts from main account (account 0)
-for i in {1..9}
+for i in {1..99}
 do
   for j in {0..2}
   do
-    /home/yann/go/bin/geth attach $ipc_str_1$j$ipc_str_2$j$ipc_str_3 --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[$i], value: 10000000000000000000, gas: 21000, gasPrice: 100000000000})"
+    /home/yann/go/bin/geth attach $ipc_str_1$j$ipc_str_2$j$ipc_str_3 --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[$i], value: 100000000000000000000000, gas: 21000, gasPrice: 10000000000})"
   done
   sleep 12
 done
-
-sleep 10

@@ -18,6 +18,12 @@ This document shall outline the inner workings of *cascadeth*, a client supporti
 - [ ] State-flux
 - [ ] Other optimizations (tune rewards, etc.)
 
+## Uncertainties / Problems / Big TODOs
+
+- [ ] Block broadcast needs to be uniform reliable with *totality*, i.e., one needs to broadcast all blocks seen.
+
+
+
 ## Introduction
 
 ## Ethereum overview

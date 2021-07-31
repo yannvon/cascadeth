@@ -1,25 +1,31 @@
 
-# Get funds to all accounts from main account
+ipc_str_1="/home/yann/Documents/cascadeth/data/benchmark/datadir/node"
+ipc_str_2="/geth"
+ipc_str_3=".ipc"
+
 
 
 # Option 1: Unlock all accounts
-for i in {0..9}
+for j in {0..2}
 do
-  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/benchmark/datadir/node0/geth0.ipc --exec "personal.unlockAccount(eth.accounts[$i], '', 10000000)"
+  for i in {0..99}
+  do
+    /home/yann/go/bin/geth attach $ipc_str_1$j$ipc_str_2$j$ipc_str_3 --exec "personal.unlockAccount(eth.accounts[$i], '', 10000000)"
+  done
 done
-
-# Get funds to all accounts from main account (account 0)
-for i in {0..9}
-do
-  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/benchmark/datadir/node0/geth0.ipc --exec "eth.sendTransaction({from:eth.accounts[0], to: eth.accounts[$i], value: 10000000000000000000, gas: 21000, gasPrice: 100000000000})"
-done
-
-sleep 10
 
 # Spam transaction
-for i in {0..9}
+
+for k in {0..5}
 do
-  /home/yann/go/bin/geth attach /home/yann/Documents/cascadeth/data/benchmark/datadir/node0/geth0.ipc --exec "eth.sendTransaction({from:eth.accounts[$i], to: 'a6e1809e41b94caceeb44f475e892e394a943691', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
+  for j in {0..2}
+  do
+    for i in {0..99}
+    do
+      /home/yann/go/bin/geth attach $ipc_str_1$j$ipc_str_2$j$ipc_str_3 --exec "eth.sendTransaction({from:eth.accounts[$i], to: 'a6e1809e41b94caceeb44f475e892e394a943691', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
+    done
+  done
+sleep 20
 done
 
 

@@ -83,11 +83,11 @@ bootnode=$!
 
 echo "Starting geth nodes."
 # nodiscover breaks a lot of stuff, but with manual adding it should work
-/home/yann/go/bin/geth --datadir data/benchmark/datadir/node0 --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6061 --networkid 15 --port 30303 --http.port 8101 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth0.ipc --netrestrict 127.0.0.0/24 --unlock 0xa6e1809e41b94caceeb44f475e892e394a943691 --password data/benchmark/password.txt &> data/benchmark/datadir/geth0.log &
+/home/yann/go/bin/geth --datadir data/benchmark/datadir/node0 --gcmode archive --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6061 --networkid 15 --port 30303 --http.port 8101 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth0.ipc --netrestrict 127.0.0.0/24 --unlock 0xa6e1809e41b94caceeb44f475e892e394a943691 --password data/benchmark/password.txt &> data/benchmark/datadir/geth0.log &
 node1=$!
-/home/yann/go/bin/geth --datadir data/benchmark/datadir/node1 --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6062 --networkid 15 --port 30304 --http.port 8102 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth1.ipc --netrestrict 127.0.0.0/24 --unlock 0x0880213c848114c92bbb36e14916cedb43e70669 --password data/benchmark/password.txt &> data/benchmark/datadir/geth1.log &
+/home/yann/go/bin/geth --datadir data/benchmark/datadir/node1 --gcmode archive --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6062 --networkid 15 --port 30304 --http.port 8102 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth1.ipc --netrestrict 127.0.0.0/24 --unlock 0x0880213c848114c92bbb36e14916cedb43e70669 --password data/benchmark/password.txt &> data/benchmark/datadir/geth1.log &
 node2=$!
-/home/yann/go/bin/geth --datadir data/benchmark/datadir/node2 --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6063 --networkid 15 --port 30305 --http.port 8103 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth2.ipc --netrestrict 127.0.0.0/24 --unlock 0x40dd7959718df0ff47c1ba478a3de90c2637a605 --password data/benchmark/password.txt &> data/benchmark/datadir/geth2.log &
+/home/yann/go/bin/geth --datadir data/benchmark/datadir/node2 --gcmode archive --bootnodes $bootnodes --metrics --metrics.addr 127.0.0.1 --metrics.port 6063 --networkid 15 --port 30305 --http.port 8103 --syncmode full --verbosity $verbosity --cache.snapshot 0 --ipcpath geth2.ipc --netrestrict 127.0.0.0/24 --unlock 0x40dd7959718df0ff47c1ba478a3de90c2637a605 --password data/benchmark/password.txt &> data/benchmark/datadir/geth2.log &
 node3=$!
 
 # sleep $init_time
@@ -115,7 +115,7 @@ do
   /home/yann/go/bin/geth attach $ipc_str_1$i$ipc_str_2$i$ipc_str_3 --exec "miner.start(0)"
 done
 
-sleep 100
+sleep 1000
 
 
 
