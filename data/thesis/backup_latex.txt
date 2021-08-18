@@ -1,0 +1,707 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage{cite}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{cleveref}
+
+\input{packages.tex}
+\input{math.tex}
+\input{names.tex}
+\input{algorithms.tex}
+\input{solidity-highlighting.tex}
+
+\title{Implementing a consensusless blockchain based cryptocurrency}
+\author{Yann \textsc{Vonlanthen}}
+
+\makeatletter 
+\AtBeginDocument{\markboth{\@author}{\@title}} 
+\AtBeginDocument{\renewcommand{\labelitemi}{-}}
+
+\begin{document}
+
+\begin{titlepage}
+\begin{center}
+
+{\Large \textsc{Communication Systems}}\\\medskip
+{\Large \textsc{Master Project}}\\\medskip \vspace{4cm}
+% {\Large PDM }\\
+
+{\Huge \@title}\\\vspace{4cm}
+
+\begin{tabular}{ll}
+{\Large \textit{Student:}}   & {\Large \@author} \\  & \\
+{\Large \textit{Supervised by:}}
+& {\Large Jakub \textsc{Sliwinski}}  \\ 
+& {\Large Prof. Dr. Rachid \textsc{Guerraoui}} \\
+& {\Large Prof. Dr. Roger \textsc{Wattenhofer}}
+\end{tabular}
+\vspace{1.5cm}
+
+{\Large \@date}\vspace{.2cm}
+
+{\Large \textsc{Distributed Computing}}\\\medskip
+{\Large \textsc{ETHZ}}\\\vspace{7mm}
+
+\includegraphics[width=5cm]{ethz.png}%
+\hspace{60pt}
+\includegraphics[width=4.5cm]{epfl.png}
+
+
+\end{center}
+\end{titlepage}
+
+\newpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Abstract}
+\label{context}
+
+TODO use firefox spelling addon.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Introduction}
+\label{intro}
+This report details the work done during my master thesis project at ETHZ under the supervision of Professor Roger Wattenhofer and PhD student Jakub Sliwinski, as well as my EPFL supervisor Professor Rachid Guerraoui.
+
+In their 2019 paper titled \textit{{ABC:} Asynchronous Blockchain without Consensus}, Wattenhofer et al. proposed a new blockchain architecture that is permissionless and works in a completely asynchronous model. Transactions achieve finality within a single round trip of communication and the fully parallelizable protocol doesn't rely on resource intensive proof-of-work. While its weaker termination property means it only solves a relaxed form of consensus, it be used to implement a cryptocurrency very efficiently \cite{DBLP:journals/corr/abs-1909-10926}.
+
+Following these interesting theoretical results, our first goal in this project was to bring this architecture to life through a proof-of-concept implementation. However, a lot of care was given to try to make it easily maintainable and extendable in the future.
+A secondary goal was then set to extend the aforementioned protocol with new ideas, that would allow the currency to resolve stuck double-spending attempts through an a posteriori consensus module. 
+Finally the remaining time was invested towards testing and bench-marking the system. 
+
+This document starts with an overview of existing state-of-the art protocols and situates our solution in this fast-growing landscape. An introduction of the Cascade protocol (previously called ABC protocol) in \cref{cascade} is then followed by an explanation of our overarching goals. In \cref{ethereum} we explore the implementation options in terms of programming language and argue our choice to build our protocol using an existing client for the Ethereum blockchain architecture. It further explains some Ethereum concepts that will dictate our design process.
+\cref{mapping} lays the groundwork and explains the slightly modified \textit{Cascadeth} protocol that we developed to better suit existing software architecture. Finally we jump into the core of this work in \cref{implementation}, where the implementation details are explained.
+The second major contribution follows in \cref{aposteriori}, where we prove how we can resolve double-spend attempts a posteriori, resulting in a more user-friendly but still better performing payment system. Here we again make use of existing Ethereum architecture to propose a simple but efficient proof-of-concept implementation. Finally we explore further avenues for this project, such as extensions to support smart-contracts and conclude with an overview of my contributions during this project.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Context}
+\label{context}
+
+This section situates our contribution in the context of current developments in this area of research. Note that comparisons are done on a high level of abstraction, more technical details and differences are given in \cite{ABC}. 
+
+Following the famed whitepaper of Satoshi Nakaoto in 2008, a plethora of digital payment systems, so called cryptocurrencies, emerged. Most of these existing blockchain architectures rely on totally ordering transactions in order to solve the double-spend problem. This is equivalent to performing consensus, a problem famous for being difficult, if not impossible depending on the underlying assumptions. By solving this hard problem, existing solutions are often wasteful with resources (i.e. proof-of-work solutions require constant solving of energy devouring tasks to determine a leader) or only work in a restrictive model (assumptions on network latency).
+
+In their 2019 paper \cite{ConsensusNumber2019} however, Guerraoui et. al proved that a pure payment system does not require consensus in order to function. In their follow up work \cite{Merely broadcasting} they show how by broadcasting transactions using a form of reliable broadcast the transactions only need to be ordered by their issuer. Intuitively, as long as every participant in the system sees the same transactions (guaranteed through the reliable broadcast), they do not need to keep the same overall state for the system to function. Firstly, this can lead to situations where a party does not see enough funds to carry through a transaction, however, by waiting for more transactions to be received, it is guaranteed that eventually the required funds will arrive. However, since reliable broadcast does not have a termination property of a consensus algorithm, it can happen that in the case of a double-spend (e.g. two different transactions claimed to have happened at the same time by their issuer) no transaction is accepted. In this case the account trying to double-spend is effectively blocked, and no further transaction will be processed. Note that it can be argued that this is not a problem, as the issuer of the double-spend can be seen as malicious.
+
+
+\subsection{No need for Consensus}
+
+As for any cryptocurrency the basic building blocks are (monetary) \textit{transactions}. While the blockchain architecture can be seen as a state machine that is in charge of doing bookkeeping, transactions are the way users express their desire to perform state transitions. 
+
+While most blockchain systems order their transactions \textit{totally}, effectively forcing all participants to perform the state transitions sequentially and in the same order, it has been shown that this isn't necessary for a payment system without smart-contracts. Intuitively, most transactions have no dependencies between each other, i.e. party A sending money to B and party C to D, and can thus be performed in any order.
+This idea has for example been explored in other papers such as \cite{MerelyBroadcastig} and I will compare the to below \ref{compareastro}. 
+
+\subsection{UTXO vs Account model}
+\label{utxovsaccount}
+
+We don't believe their are any fundamental differences in theory, but in practice they are noteable.
+
+- stake flux harder
+
+However we usually distinguish between two main models on how to do the keep track of transactions:  Firstly, in the \textbf{UTXO model} transactions produce outputs who's ownership is assigned to one or more actors. Each of these outputs can then later be used as input to a new transaction. As the name indicates, the amount of \textit{unspent transaction outputs} (in short UTXO) determines the balance of an agent. This is model employed by payment systems such as Bitcoin (CITE whitepaper), ZCash and Litecoin. The second model is called \textit{account model}, and as the same suggests no inputs and outputs are tracked separately, instead a global state keeps track of each balance. We will dive into the UTXO model here, and leave the description of the account based model to \cref{ethereum, mapping}, where we introduce Ethereum, respectively our Cascade implementation.
+
+
+
+\subsection{Comparison to Ethereum 2.0}
+\label{compareethereum}
+
+Ethereum is on of the most well known blockchains and natively supports smart-contracts, which allow for general code execution on top of the blockchain, mimicking a general-purpose computer in a decentralized way. While originally built using a proof-of-work consensus engine, the community is working on rolling out Ethereum 2.0, which uses a proof-of-stake consensus mechanism. I will compare this new protocol to Cascade. 
+
+First note that this new version brings many other changes, such as sharding, which I will not consider in this comparison, as Cascade could also be using such mechanism to further scale. More importantly both solutions differ on a more fundamental level: While Ethereum 2.0 is designed to be run on consumer grade infrastructure only, such that everyone can participate as validator, Cascade relies on few validators (ideally around 50-100) that might have to process more messages, and thus would need better infrastructure. Thus at first sight one could argue that Ethereum 2.0 handles \textit{democratization} better as firstly more people can participate and secondly decentralization is higher. However, Cascade gives voting power to every account to elect a representative and earn rewards through him while the rather large sum of 32 ETH are required to become a validator on  Ethereum. Further, many Ethereum validators are already as of now controlled by the same staking pools, and the number of staking pools is not controlled. This severly undermines the decentralization argument.
+
+Secondly, note that parallelization is created through shards on Ethereum 2.0, but each shard need to process transactions sequentially. This is not the case for Cascade, transactions can be validated without having access to the whole state, and thus a single validator could employ multiple consumer grade machines to scale its throughput.
+
+Slashing necessary ?
+
+Of course the main reason for these drawbacks is the total ordering of transactions performed by Ethereum to support smart-contracts. An extension towards this direction is also in the works for Cascade, see \cref{furtherwork}.
+
+
+ADVantages taken from astro
+- latency only limited by honest participants
+
+Other
+- completely asynchronous model
+- immediate and unrevokable confirmation
+
+\subsection{Comparison to other broadcast based approaches (eg. Astro}
+\label{compareastro}
+
+There are of course multiple primitives that can be used to implement this core idea, such as a probabilistic approach as seen in \cite{Extended}. However, this broadcast based solution had a message complexity of \textit{N*log(N)} per transaction, but was relying on a permissioned system.
+
+Compare with Astro paper. -> permissionless -> 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Cascade Protocol}
+\label{cascade}
+
+In this section, we will informally outline the core principles of the protocol as published in \cite{ABC}. This will allow us to later better explain the changes that were decided in the context of this implementation. 
+
+We call \textbf{agents} the participants of the system. Transactions lie at the heart of any payment system, as it's aim is providing a possibility for agents to send each other an arbitrary amount of an shared currency. 
+
+An important property of transactions in the UTXO model is that they allow for multiple inputs to be split into multiple output. 
+
+
+
+\subsection{Model and adversary}
+Contrary to many modern cryptocurrencies Cascade works in a completely asynchronous model. It also 
+
+\subsection{Transactions}
+Transactions follow the UTXO model described in \cref{context}, where multiple inputs can be split to multiple outputs belonging to different agents. For instance, an agent wanting to spend only half of an existing UTXO, would create a transaction sending half of it to its destination, and half back to him.
+
+To prevent denial of service attacks and extreme bloating, a small fee will be charged for each transaction. This fee will be redistributed to the actors who participate in securing the system. 
+
+\subsection{Wallets}
+Just collection of UTXOs.
+
+\subsection{Validators}
+Similar to a reliable broadcast algorithm like Bracha algorithm CITE, transactions become \textit{confirmed} once a quorum of actors have acknowledged it. However, where as in Bracha's algorithms the assumption is that more than 2/3 of actors is correct, we work under the assumption that more than 2/3 of the currency is held by correct actors. Thus, each acknowledgment is worth as much as the balance of the actor who acknowledges said transaction. 
+
+In order to further improve usability (and performance) of the system we allow and even economically encourage \textit{staking}. Staking is the process of trusting another agent with one's funds, effectively fully delegating voting power. Actors who are recipients of delegated stake and actively participate in securing the system are called \textbf{validators}. Besides having an origin and recipient field, each transaction also specifies to which validator the funds will be delegated. (Of course one can delegate the funds to the recipient directly, or, if the recipient isn't happy with the chosen validator, he can send the funds to himself, and simply change validator like that.)
+
+As mentioned previously, in order to reap the full benefits of this architecture, we want to keep the number of validators large enough to ensure sufficient decentralization and thus security. However, we also need an upper limit of validators for the system to scale well. 
+We achieve this through the use of economic incentives, i.e., larger validators (until a certain point) will receive a proportionally larger share of transaction fees.
+
+One big practical advantage is that nodes do not need to keep track of the system's state. They can simply connect to another actor, who can relay their account balance to them, and transactions to the system. Further the system is entirely permissionless, a big advantage as compared to Astro as presented in \cite{MerelyBroadcastig}.
+
+As mentioned previously, in order
+
+\subsection{Confirmations}
+
+DAG picture
+
+\subsection{Checkpoints and pruning}
+
+There are multiple important aspects regarding Efficiency and Economy that are made possible through this architecture that we will mention here for completeness. While they are not implemented in this project, we did think about them to a certain degree and made design choices to accommodate these improvements further down the line.
+
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Implementation goals and Design choices}
+\label{implementationgoals}
+
+This section focuses on laying out the goal of this project. This might explain many of the design decisions I took. I discuss what I learned in the process and what I could have done better in \cref{conclusion}.
+
+Firstly, we wanted to translate Cascade to a stable and easily maintainable system. The goal was to create a proof-of-concept implementation, but on a platform and in a way that had the potential to scale further once this project was done. 
+Therefore a focus was laid on creating easily maintainable code, while pursuing a test-driven software engineering. Further, we knew that core modules, like cryptography libraries, wallets, databases, user interfaces and P2P networking were hard to implement ourselves, while being in common with many existing protocols.
+
+Of course, Ethereum being the blockchain architecture seeing the most active development CITE, it seemed like a great choice to us. 
+Moreover, while Cascade does not support smart contracts, a potential future extension could and we thus were eager to have potential support for the Ethereum Virtual Machine in our sleeves. 
+
+For these reasons we chose to work with an existing open source Ethereum implementation that we would fork and adapt to support Cascade under the hood. The most prominent client is called go-ethereum (geth for short) CITE and as it is also the best document client and written in a state of the art programming language (Golang) our choice was quickly made to fork this project. 
+
+Henceforth the go-ethereum code was carefully adapted while keeping most of the existing features functional (external wallet support, http/rcp connection to nodes, CLI and so on). (USB wallet support for wallets like ledger had to be dropped later on for compatibility issues of codebases)
+
+SHOULD I MENTION THIS:
+
+While some success was had, this development phase was slow and tedious, which is why after the project's midpoint, we switched to a purely proof-of-concept approach, which while still tested, some bugs are known to exist. However this has allowed us to have a working system.
+
+Since many design choices of our implementation can be explained by the architecture of Ethereum 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Ethereum}
+\label{ethereum}
+
+I will restrict myself to explaining the high level concepts of such a system, as the details will be explained only when necessary throughout \cref{implementation}.
+Ethereum is one of the most well-known cryptocurrencies and decentralized systems currently. Due to its popularity and through its openness to embrace new technologies, it features an developer friendly environment. 
+
+While part of Ethereum 2.0 is running already (Beacon chain), we have chosen and will exclusively talk about Ethereum 1.0 below. 
+
+Similar to Bitcoin, Ethereum uses proof-of-work consensus. In which, a chain of block represents the total order of transactions, with each block having its own order. Miners can mint produce a new block to append to the chain if they successfully solve a puzzle (see CITE). They are rewarded with some Ether and reap transaction fees. 
+Consensus is established by always considering the head of the longest chain as the current state. Of course, due to network latency or malicious behavior, the chain can fork. In which case honest miners randomly choose a new correct chain to which they will try to append their next block. The security of the system relies on a majority of miners being honest, as well as some network latency (synchronicity) assumptions. 
+
+While each transaction can also be a call to create a smart contract, we will focus on transactions here. 
+
+The base layer is a peer-to-peer protocol that is in charge of scanning the network for participants, that have the same chainId and genesis block (FIXME).
+On top of that the Ethereum Wire Protocol is in charge of message communication.
+
+
+\subsection{Ethereum Wire Protocol}
+CITE github
+
+There are two main ways to share blocks: Through broadcast and syncing.
+
+
+\subsubsection{Block announces}
+
+Second round of broadcast is done when importing.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Mapping Cascade onto Ethereum}
+\label{mapping}
+
+Differences to UTXO
+- Instead of loosing coin, we risk loosing account.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Cascadeth - Implementation details}
+\label{implementation}
+In the following, my goal is to show some of the changes I have performed on the go-ethereum client. Note that the modules mentioned below were designed by the developer team with Ethereum in mind, and thus their name might become unrepresentative of the purpose in Cascadeth.  
+
+First let me note that a major challenge was to get familiar with the \textit{go-ethereum} codebase. While I didn't have to consider the entire codebase that boasts over 1000 files with 355'000 lines of codes, the major modules \textit{core}, \textit{eth} and \textit{consensus} still amount to a combined 250 files with over 65'000 lines of code. (including tests)
+
+\subsection{Big picture}
+
+\includegraphics[width=12cm]{eth_backend.png}%
+
+
+For an easier understanding of th following sections, the main architecture layout is shown in REF
+
+\subsection{Blocks}
+The basic building blocks of Ethereum also stay the building blocks of Cascadeth. However, instead of including transactions in blocks, we use them to broadcast acknowledgements. 
+This is done simply by including all transactions we want to sign, while a signing the block proves to the other agents that it was indeed issued by the given validator.
+Further, the \textit{parentHash} field is kept in order to refer to the previous block, and thus the previous acknowledgements, as outlined in the Cascade protocol. 
+
+Note that in the future many optimizations are possible, such as removing the need to include the full transaction inside the block.
+
+
+\subsection{Blockchain}
+As every validator creates his own chain of acknowledgements, the core component of the blockchain must also reflect this. 
+
+Here a lot of time and reflection went into how to best implement this shift. For completeness I will outline the three main options that we explored:
+
+\subsubsection{Multiple Ethereum blockchains}
+\label{multiplechains}
+
+In this solution each agent keeps track of multiple blockchain modules internally. This would alleviate the need to change most of the code responsible for importing blocks and checking their validity. Moreover, we could run separate threads to synchronize and fetch blocks for each of these chains.
+Thus in theory this looked like the best solution. However, upon going deep into the details it became clear that many things speak against it. First of all, many core modules rely on a single blockchain object, making this change very hard in practice. Secondly, each blockchain object would rely on a different database, many threads for syncing, fetching, filtering and handling blocks. While it could be argued that this allows for some parallelism, it also comes at the cost of user hardware not being able to run it. As I was relying on running multiple nodes locally for testing this seemed impossible right away.
+
+What about communication complexity?
+
+\subsubsection{Single chain, blocks in processing order}
+This approach goes the opposite way of the one detailed in \cref{multiplechains}. Instead of keeping existing modules and multiplying them, we would wrap a single existing blockchain module. The idea would be to insert blocks in processing orders, disregarding their ancestor (parentHash). 
+
+At first I believed this would make syncing simpler, as there would only be a single chain to keep track off. However, changing blocks locally to make them fit this model also changes their hash, making syncing actually much harder. 
+
+While this was the first solution I actively implemented, I quickly changed direction to the one below.
+
+\subsubsection{One blockchain}
+The overarching idea here was to keep the existing module, but to allow validators to create their own chain, effectively creating as many forks as there are validators starting from the genesis block. It is safe to say that this proved to be the best solution for keeping most of the \textit{go-ethereum} structure intact.
+
+
+
+
+
+\subsection{Consensus engine}
+
+
+\subsection{Transactions}
+
+
+\subsection{Backend \& Handler}
+
+
+\subsection{BlockFetcher}
+
+
+\subsection{Sync}
+
+
+\subsection{Mining \& Worker}
+
+
+\subsection{Txpool - Proof-of-Stake}
+
+ADD GRAPHIC OF PoS system.
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Performance benchmarks}
+\label{benchmarks}
+
+Can be left out is not enough data collected.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{A posteriori consensus}
+\label{aposteriori}
+
+The original cascade protocol does not provide the guarantee to resolve double-spend transactions. Indeed when there are two or more transactions with the same nonce, correct validators might choose to acknowledge any but only one of the possible transactions. This can result in either all correct processes confirming the transactions, or none at all. We regard this as acceptable, as a double-spend attempt can be seen as malicious behavior, for which we do not provide a termination guarantees. Note that a partial payment attack (explain) is not possible, as we do guarantee agreement still.
+
+However, there are reasons why it would be nice to resolve double-spend attempts. For one, it would simplify the original algorithm, as it would remove the need to broadcast acks and thus removing a round of communication. Second, we argue that it is significantly more user friendly. Not only can client side bugs inadvertedly create double spends, but sharing accounts would be very risky, as one would have to coordinate to make sure to not double spend. Of course the likelyhood would be very small, but loosing the entire funds might be devastating enough to incite careful off-channel synchronization.
+
+One could argue that account sharing is not an important feature anyways. However consider current Fintech applications where our account is connected to many applications and can be charged at any time by having subscriptions. Blockchain are also about enabling new applications that weren't possible before and hence we might want to connect our wallet to many services, such as Games (many are currently emerging on the Ethereum platform) and DeFi applications that trade in our name. None of this would be possible if any transactions has the risk to make us loose our funds forever.
+
+We thus argue that a feature resolving these attacks can be crucial. Hence the idea is born to perform consensus on which transaction is valid when necessary. While we need stronger synchronicity assumptions, we can keep low message complexity and asynchronicity in the regular case, effectively keeping the best of both worlds. 
+
+We outline an extension to Cascade below, that keeps most advantages, but can be coupled with consensus engine 
+
+Astro would call this the Totality property (optional).
+are acknowledged, such that none gets 
+
+
+TODO rely on this to not do syncing ! (it solves the partial payment attack !)
+
+\subsection{Intuition}
+\label{aposterioiri:intuition}
+
+Let us imagine a model where more than 4/5 of the stake belongs to honest validators, and where Alice inadvertently double-spends, i.e. signs a transaction with the same nonce twice. It could very well happen that either transaction receives the required Quorum of 4/5 acknowledgements and nothing happens. However, the system leaves us no guarantees that the conflict will ever be resolved.
+
+Since we are guaranteed to get 4/5 + 1 acknowledgements, we can however decide on using a consensus instance, if we have observed one or more conflicting transactions at this point.
+Of course, some other processes might have already confirmed and delivered one of the transactions, hence it is not as easy as just reaching consensus on any of the double-spend transactions. Indeed we need to make sure that if a transaction can be confirmed later on (by missing honest or malicious) acknowledgements, then this transaction needs to be selected by the consensus instance.
+
+We argue that this can be done simply by employing an algorithm satisfying \textit{strong Byzantine consensus}, as detailed by Module 5.11 in CITE RACHID BOOK. This specifications most notably includes \textit{strong validity} which says that "if all correct processes propose the same value, then no correct process decides a value different from \textit{v}; otherwise, a correct process may only decide a value that was proposed by some correct process or the special value $\square$"
+
+
+
+\subsection{Model and Adversary}
+We keep the same model as in CITE, but tighten our assumption regarding the adversary. Indeed for this algorithm to work we require that $f < \frac{N}{5}$, i.e., that more than $\frac{4}{5}$ of the stake should be attributed to honest validators at all times.
+
+Further intersect this with the assumptions needed for our underlying consensus abstraction to work. While here we chose to use Ethereum smart contracts, that rely on strong synchronicity assumptions (see CITE), however using BFT algorithms like HotStuff (CITE) would of course also work, and only require partial synchrony.
+
+\subsection{Algorithm}
+
+Now confirmation happens at a quorum of size $\frac{N+3f}{2}$.
+If an agent sees a double-spend before confirming he proposes value to consensus instance $(sn, n)$. (I.e. after receiving more than a quorum of votes)
+
+\begin{notation}
+As it makes no practical difference, I will disregard the fact that acknowledgements are weighed by the stake attributed to their issuer in this section (\cref{aposteriori}). 
+\end{notation}
+
+The full simplified algorithm is shown in \cref{algorithm:cascade+}, and follows what I presented in \cref{aposterioir:intuition}
+
+TODO change nomenclature: sentready to sentack, ddelivered to confirmed
+
+
+
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Implements
+    \Instance{Lazy Byzantine Consensus}{lbc}{, with sender $s$.}
+\EndImplements
+
+
+\Uses
+    \Instance{Byzantine Consensus}{bc}
+\EndUses
+
+\UponPure{lbc}{Init}
+    \State \textit{delivered} := False;
+    \State \textit{echos} := $[\bot]^N$;
+\EndUponPure
+
+\Upon{lbc}{Broadcast}{m}
+    \ForAll{q}{\Pi}
+        \Trigger{al}{Send}{q, [SEND, m]}
+    \EndForAll
+\EndUpon
+
+\Upon{al}{Deliver}{p, [SEND, m]} \textbf{such that}
+    \State \textit{sentecho} := True;
+    \ForAll{q}{\Pi}
+        \Trigger{al}{Send}{q, [ECHO, m]}
+    \EndForAll
+\EndUpon
+
+\Upon{al}{Deliver}{p, [ECHO, m]} \textbf{such that}
+    \If{echos[p] := \bot}
+    \State \textit{echos}[p] := True;
+    \EndIf
+\EndUpon
+
+\Upon{\text{\#}(\{p \in \Pi \mid echos[p] \neq \bot\}) > \frac{N + 3f}{2} \text{ \textbf{and} } delivered = False}
+    \State \textit{max} := $argmax_{m \in M}(\text{\#}(\{p \in \Pi \mid echos[p] = m}) > \frac{N + 3f}{2})$
+    \Trigger{bc}{Propose}{max}
+    
+    \If{weight(max) > \frac{N + 3f}{2}}
+        \State delivered = True;
+        \Trigger{lcb}{Deliver}{s,m}
+    \EndIf
+\EndUpon
+
+\Upon{bc}{Deliver}{m}
+    \If{delivered \neq True}
+        \State delivered = True;
+        \Trigger{lcb}{Deliver}{s,m}
+    \EndIf
+\EndUpon
+
+
+
+\end{algorithmic}
+
+\caption{Cascade+}
+\label{algorithm:cascade+}
+\end{algorithm}
+
+
+Note that this algorithm is a stand in, Authenticated Double-Echo Broadcast could also be considered (provides totality) with lower message complexity. 
+
+Signed Echo Broadcast (Astro 2) can also be adapted to provide totality. \cite{MerelyBroadcastig} 
+
+
+\subsection{Correctness proof}
+\label{proof}
+
+We want to prove that Cascade with a posterioiri consensus (Cascade+) satisfies the termination property, and not just \textit{Honest-termination} from ABC-Consensus as outlined in \cite{ABC}.
+
+\textbf{Termination}: Every correct agent eventually accepts one of the transactions. If messages are delivered quickly, the consensus protocol terminates quickly.
+
+Secondly, and more importantly, I will show that the algorithm still satisfies \textit{agreement} and \textit{validation} properties.
+
+I will do so by first splitting validators into three categories for each (transaction, nonce) pair. Then I will show that categories 1 and 3 are mutually exclusive. Finally, by enumerating all cases I will prove the desired properties to hold.
+
+
+
+\begin{definition}
+For a Cascade+ consensus instance characterized by sender and nonce pair $(sn, n)$, where more than N-f of acknowledgements were collected we call $t^v_{(sn,n)}$ the transaction with the most acknowledgements received.
+
+\end{definition}
+
+\begin{notation}
+Assume that more than N-f acknowledgements were collected for the transaction(s) attributed to a sender and nonce pair $(sn, n)$ at validator $v$. Depending on $t^v_{(sn,n)}$ we distinguish three following cases:
+
+\begin{itemize}
+    \item \textbf{case 1:} $0 < t^v_{(sn,n)} \leq 2f$
+    \item \textbf{case 2:} $2f < t^v_{(sn,n)} \leq 4f$
+    \item \textbf{case 3:} $4f < t^v_{(sn,n)} \leq N-f$
+\end{itemize}
+\end{notation}
+
+\begin{lemma}
+\label{lemmacases}
+If a validator $v$ is in case 1 for instance $(sn, n)$, there is no validator $u$, such that $u$ is in case 3 for instance $(sn, n)$.
+\begin{proof}
+Towards contradiction assume that $v$ is in case 1 and $u$ in case 3. Thus $t^v_{(sn,n)} + 2f < t^u_{(sn,n)}$. This implies that $u$ must have received more than $2f$ acknowledgements more than $v$ for a single transaction. However, malicious processes can only contribute f acknowledgements, while less than f correct processes are left, since we have already received $N-f$ acknowledgements by assumption.
+Hence we reach a contradiction.
+\end{proof}
+\end{lemma}
+
+\begin{theorem}
+Cascade+ satisfies Consensus properties, i.e., agreement, validity and termination as specified.
+\begin{proof}
+First assume all validators are in case 1 and potentially 2. Note that by the argument employed in \cref{lemmacases} no validator in case 1 will ever confirm a value, as less than 2f additional acks only amount to less than 4f acks, which is not enough to form a quorum of size $\frac{N+3f}{2}$, when $f < 5N$ Hence by the contra-positive of the agreement property of Cascade, no validator will ever confirm a transaction. Thus validators will propose potentially different values, and once consensus instance decides, they will confirm the delivered transaction. Hence termination and agreement is satisfied. Validity is trivially satisfied.
+\textbf{However, we need consensus to make sure that only valid (signed) transactions can be proposed and that the transaction content is returned.}
+
+Next, assume all validators are in case 2. We argue that there can only be two transactions, as there can't be more than 6f received. By the same argument, if there are two different transactions, then none can later be confirmed. Thus it doesn't matter which one the consensus decides upon. Consensus will provide agreement and termination as desired. VALIDITY TODO
+
+Next, assume validators are in case 2 and 3. We argue that for all validators $v$ $u$, such that $u != v$, we have $tx^v_{(sn,n)} = tx^u_{(sn,n)}$. Indeed assume that $tx^v_{(sn,n)} != tx^u_{(sn,n)}$. This means that together they have received more than 6f acknowledgements. However, since N < 5f, and only the f malicious agents can send two acknowledgments, this is a contradiction. Hence all correct validators will propose the same value and by the properties of the underlying consensus all properties hold.
+
+Note that in this last case not all correct processes might propose, in which case it not the consensus instance, but the regular Cascade mechansim that provides guarantees. (DETAIL, group)
+
+\end{proof}
+\end{theorem}
+
+Proposing to consensus with own acked value ?? What changes ?
+
+
+(footnote most if efficient)  
+
+\subsection{Lazy consensus in Cascadeth}
+
+Let me preface this by saying that our implementation does not satisfy termination as outlined above. Indeed it woulnd't be difficult to do so, but for performance reasons and our choice of consensus engine, I haven't found an efficient and practical way to do so. Instead we guarantee the following termination property:
+
+\textbf{Cascadeth-Termination}: If there are no more than 4 conflicting transactions, every correct agent eventually accepts one of the transactions. If messages are delivered quickly, the consensus protocol terminates quickly.
+
+ADD SPECIFICATIONS
+
+\subsubsection{Choice of consensus algorithm}
+
+
+
+\subsubsection{Ethereum smart-contracts}
+
+
+\subsection{A posteriori consensus for Smart-contracts}
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Issues}
+\label{Issues}
+
+We need syncing, as otherwise acks would be lost and we would loose totality property, and hence expose ourself to a partial payment attack as outlined in CITE. Originally we thought syncing could just inlude the same mechanism as in Ethereum, by downloading the respective longest chain of each validator. However, this would still not guarantee partial payment attacks, as one has to transmit any potential forks in the chain as well. This makes it much less efficient and harder to put into practice.
+This is only for permissionless implementation however, usually we rely on block broadcast being reliable. (VERIFY)
+
+We need syncing, as otherwise we can't reorder blocks. (would have been hard to implement, might be necessary due to above problem)
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Further work}
+\label{furtherwork}
+
+Cascadeth:
+\begin{enumerate}
+    \item Blocks contain only hashes as acks, reliable broadcast beforehand. (not guaranteed right now)
+    \item
+\end{enumerate}
+
+Cascadeth+:
+\begin{enumerate}
+    \item 
+    \item
+\end{enumerate}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+\label{conclusion}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Personal critique of ABC/Cascade}
+\label{critique}
+
+Partial payment attack
+-> prevent it with double broadcast with C²*N messages, but inefficient compared to bracha algorithm with ready. -> actually seems pretty bad, but with probabilistic broadcast of blocks it makes it much better ! (square root N)
+
+
+Why call it weak consensus when its just broadcast ?
+
+I had difficulty with the difference between style EPFL/ETHZ.
+
+-> Imprecise security/liveliness properties. termination ?? never proven "quickly terminating"
+
+-> no proof of agreement and validity. Partial payment attack breaking agreement is not addressed, algorithm doesn't seem to prevent it even.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bibliographystyle{plain}
+\bibliography{bibliography}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Appendix}
+\label{appendix}
+
+\subsection{Multi-shot smart contract}
+
+\begin{lstlisting}[language=Solidity]
+// SPDX-License-Identifier: GPL-3.0
+
+pragma solidity >=0.7.0 <0.9.0;
+
+/** 
+ * @title Multishot
+ * @dev Implements cascade a posteriori consensus
+ */
+contract Multishot {
+
+    event Decided(address indexed txOrigin, uint txNonce, uint256 decision);
+
+    struct Decision {
+        // If you can limit the length to a certain number of bytes, 
+        // always use one of bytes1 to bytes32 because they are much cheaper
+        uint256 decision;
+        uint weight_received;
+        uint256 currentMax;
+        
+        mapping(address => bool) proposed;
+        mapping(uint256 => uint) total_ack_weight;
+    }
+
+    mapping(address => uint) public validatorStake;
+    uint public majorityStake;
+    mapping(address => mapping(uint => Decision)) public decisions;
+    
+    
+    /** 
+     * @dev Create a new multishot.
+     * @param validators addresses allowed to propose tx hash value
+     * @param stake corresponding stake
+     */
+    constructor(address[] memory validators, uint[] memory stake) {
+        
+        uint tmp = 0;
+
+        for (uint i = 0; i < validators.length; i++) {
+            
+            validatorStake[validators[i]] = stake[i];
+            tmp += stake[i];
+        }
+        
+        majorityStake = (uint(4) * tmp) / uint(5);
+    }
+    
+    /** 
+     * @dev 
+     * @param txOrigin public address of tx sender
+     * @param nonce nonce of tx
+     */
+    function read(address txOrigin, uint nonce) public view
+            returns (uint txHash){
+        
+        Decision storage dec = decisions[txOrigin][nonce];
+        
+        // Check if decision created
+        if (dec.decision != 0) {
+            return dec.decision;
+        } else {
+            return 0;
+        }
+    }
+
+
+    /**
+     * @dev 
+     */
+    function propose(address txOrigin, uint nonce, uint txHash) public {
+
+        Decision storage dec = decisions[txOrigin][nonce];
+
+        // Create new decision if necessary
+        //if (dec == 0) {
+        //    dec = Decision({}); // Create new decision struct, FIXME needed ?
+        //}
+
+        require(!dec.proposed[msg.sender], "You already proposed.");
+        require(dec.decision == 0, "Consensus already delivered.");
+        require(validatorStake[msg.sender] > 0, "You need stake to be able to propose a value.");
+
+
+        dec.total_ack_weight[txHash] += validatorStake[msg.sender]; 
+        dec.weight_received += validatorStake[msg.sender];
+
+        // Adapt currentMax if necessary
+        if (dec.total_ack_weight[dec.currentMax] < dec.total_ack_weight[txHash]) {
+            dec.currentMax = txHash;
+        }
+
+        // Check if we can decide on value
+        // Decision can be reached for a DoubleSpend with following constraints
+        // 1) more than 4/5 of stake received
+        // 2) decide on max value
+
+        if (dec.weight_received > majorityStake) {
+            // Decision can be made
+            dec.decision = dec.currentMax;
+
+            // Emit event, such that processes don't have to query themselves
+            emit Decided(txOrigin, nonce, dec.decision);
+        }      
+
+        // Save new decision object & mark sender as having already proposed
+        dec.proposed[msg.sender] = true;
+    }  
+
+}
+
+\end{lstlisting}
+
+\subsection{Cascadeth library}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\end{document}

@@ -6,6 +6,8 @@ ipc_str_3=".ipc"
 
 
 # Option 1: Unlock all accounts
+
+
 for j in {0..2}
 do
   for i in {0..99}
@@ -15,6 +17,7 @@ do
 done
 
 # Spam transaction
+START=$(date +%s.%N)
 
 for k in {0..5}
 do
@@ -25,9 +28,13 @@ do
       /home/yann/go/bin/geth attach $ipc_str_1$j$ipc_str_2$j$ipc_str_3 --exec "eth.sendTransaction({from:eth.accounts[$i], to: 'a6e1809e41b94caceeb44f475e892e394a943691', value: 1000000000000000000, gas: 21000, gasPrice: 100000000000})"
     done
   done
-sleep 20
-done
+  END=$(date +%s.%N)
+  DIFF=$(echo "$END - $START" | bc)
+  echo $DIFF
 
+sleep 12
+done
+echo $mytime
 
 # Option 2: Unlocks when necessary
 #"personal.sendTransaction({from: eth.accounts[$i], to: 'a6e1809e41b94caceeb44f475e892e394a943691', value: web3.toWei(1.0, "ether")}, '')""
