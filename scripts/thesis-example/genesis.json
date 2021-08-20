@@ -1,0 +1,30 @@
+{
+  "config": {
+    "chainId": 15,
+    "homesteadBlock": 0,
+    "eip150Block": 0,
+    "eip155Block": 0,
+    "eip158Block": 0,
+    "byzantiumBlock": 0,
+    "constantinopleBlock": 0,
+    "petersburgBlock": 0,
+    "clique": {
+      "period": 5,
+      "epoch": 30000
+    },
+    "totalStake": 33000000000000000000,
+    "multishotAddress": "0x5a79615D346bb6924ae8CF3B665380ba3C4FBFc8",
+    "multishotGethNode": "wss://rinkeby.infura.io/ws/v3/f9b32e6b21e740eab75d12e2e0318f3d",
+    "multishotChainId": 4
+  },
+  "difficulty": "1",
+  "gasLimit": "80000000000",
+  "extradata": "0x00000000000000000000000000000000000000000000000000000000000000008d0448e9109d5d93a77061918ded588ddb8ebe975541404e8d8905a1d85852a4e31650497b0435833f6ce49ac4eeb0393346dd8e0ad40d4a55c94b080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "alloc": {
+    "8d0448e9109d5d93a77061918ded588ddb8ebe97": { "balance": "10000000000000000000" },
+    "301a741979ea27efce478535705917c07a7657f4": { "balance": "10000000000000000000" },
+    "5541404e8d8905a1d85852a4e31650497b043583": { "balance": "11000000000000000000" },
+    "3f6ce49ac4eeb0393346dd8e0ad40d4a55c94b08": { "balance": "12000000000000000000" },
+    "68db7984c3fc91d2b6897864b4b6a86590a70f40": { "balance": "13000000000000000000" }
+  }
+}
