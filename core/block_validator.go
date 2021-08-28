@@ -22,6 +22,7 @@ import (
 	"github.com/yannvon/cascadeth/consensus"
 	"github.com/yannvon/cascadeth/core/state"
 	"github.com/yannvon/cascadeth/core/types"
+	"github.com/yannvon/cascadeth/log"
 	"github.com/yannvon/cascadeth/params"
 	"github.com/yannvon/cascadeth/trie"
 )
@@ -51,6 +52,7 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // validated at this point.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	// Check whether the block's known, and if not, that it's linkable
+	log.Debug("Validating body", "blockHash", block.Hash())
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
 		return ErrKnownBlock
 	}
@@ -67,9 +69,14 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	}
 	if !v.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {
 		if !v.bc.HasBlock(block.ParentHash(), block.NumberU64()-1) {
+			log.Debug("Validating body - No parent block in DB")
 			return consensus.ErrUnknownAncestor
 		}
-		return consensus.ErrPrunedAncestor
+		log.Debug("Validating body - No parent state in DB")
+		// Cascadeth - Not having state in dB is not actually a problem !
+		// Was looking for reason and mechanism how state was pruned for days..
+		// return consensus.ErrPrunedAncestor
+		return nil
 	}
 	return nil
 }

@@ -200,7 +200,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	// Cascadeth: set MajorityStake in TxPoolConfig
 	majorityStake := new(big.Int).Set(chainConfig.TotalStake)
-	majorityStake.Div(majorityStake.Mul(majorityStake, new(big.Int).SetInt64(2)), new(big.Int).SetInt64(3))
+	majorityStake.Div(majorityStake.Mul(majorityStake, new(big.Int).SetInt64(4)), new(big.Int).SetInt64(5))
 	config.TxPool.QuorumStake = majorityStake
 	log.Debug("Setting MajorityStake in TxPoolConfig.", "totalStake", chainConfig.TotalStake, "majorityStake", majorityStake)
 

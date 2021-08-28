@@ -61,11 +61,12 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 
 	// Cascadeth: Add lock here as we validate and addAck multiple times
-	p.txpool.mu.RLock()
+	p.txpool.mu.Lock()
+	defer p.txpool.mu.Unlock()
 
 	// FIXME non-mining nodes never reorg & thus never update state. This is a quick fix for that.
 	log.Debug("Updating txpool state", "state hash", statedb.IntermediateRoot(false))
-	p.txpool.currentState = statedb
+	p.txpool.currentState = statedb.Copy()
 
 	var (
 		receipts types.Receipts
@@ -101,7 +102,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 		// If the transaction is not valid anymore, we can skip it
 		if err := p.txpool.validateAck(tx, false); err != nil {
-			log.Trace("Transaction ack is not relevant anymore.", "hash", tx.Hash())
+			log.Debug("Transaction ack is not relevant anymore.", "hash", tx.Hash())
 			continue
 		}
 
@@ -125,6 +126,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
+		log.Warn("Applying confirmed transaction", "nonce", tx.Nonce(), "sender", author, "hash", tx.Hash()) // For cascadeth demo
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -158,15 +160,21 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			p.txpool.confirmed[n] = tx
 			n++
 			continue
-		} else if err != ErrNonceTooLow {
+		} else if err == ErrNonceTooLow {
 			// Another error happened, meaning the tx is likely too old or has already been processed differently
-			log.Debug("While processing confirmed txs, old tx or tx with error was encountered", "txhash", tx.Hash(), "err", err)
+			log.Debug("While processing confirmed txs, old tx was encountered", "txhash", tx.Hash(), "err", err)
+			// continue without saving tx
+			continue
+		} else if err != nil {
+			// Another error happened, meaning the tx is likely too old or has already been processed differently
+			log.Debug("While processing confirmed txs, unknown error encountered", "txhash", tx.Hash(), "err", err)
 			// continue without saving tx
 			continue
 		}
 
 		// TX was confirmed previously and can now be processed
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
+		log.Warn("Applying confirmed transaction", "nonce", tx.Nonce(), "sender", author, "hash", tx.Hash()) // For cascadeth demo
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -176,15 +184,17 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 		// Clean other datastructures
 		// FIXME this doesn't seem to make use of caching, but couldn't yet figure out how to do it better.
-		txOrigin, err := types.Sender(p.txpool.signer, tx) // Guarenteed to succed, as already done in validation step
-		if err != nil {
-			panic(ErrInvalidSender)
-		}
-		p.txpool.cleanTx(txOrigin, uint(tx.Nonce()))
+		// FIXME cleaning datastructure here is stupid, as the state is not yet updated, hence the same tx could still be considered as valid for some time !
+		/*
+			txOrigin, err := types.Sender(p.txpool.signer, tx) // Guarenteed to succed, as already done in validation step
+			if err != nil {
+				panic(ErrInvalidSender)
+			}
+			p.txpool.cleanTx(txOrigin, uint(tx.Nonce()))
+		*/
 	}
 	// Remove all txa that weren't saved due to insufficient funds
 	p.txpool.confirmed = p.txpool.confirmed[:n]
-	p.txpool.mu.RUnlock()
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
@@ -258,13 +268,13 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		// For example: concurrent invocation could validate tx,even though another tx has been validated & acked in the meantime.
 
 		txpool := txpools[0]
-		txpool.mu.RLock()
-		defer txpool.mu.RUnlock()
+		txpool.mu.Lock()
+		defer txpool.mu.Unlock()
 
 		// If this ack is illegal, throw an error and don't allow it to be included in block
 		err = txpool.validateAck(tx, true)
 		if err != nil {
-			log.Debug("Local transaction could not be acked, as an error occured during validation.")
+			log.Debug("Local transaction could not be acked, as an error occured during validation.", "error", err)
 			// For example ErrNonceAlreadyAcked can happen due to concurrency
 			return nil, err
 		}

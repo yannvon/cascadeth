@@ -255,6 +255,7 @@ type TxPool struct {
 	scope       event.SubscriptionScope
 	signer      types.Signer
 	mu          sync.RWMutex
+	muCasc      sync.RWMutex
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
@@ -492,7 +493,7 @@ func (pool *TxPool) loop() {
 
 		// Cascadeth handle aposteriori consensus decisions
 		case vLog := <-pool.consensusCh:
-			log.Debug("Multishot consensus decision reached", "txHash decided", new(big.Int).SetBytes(vLog.Data))
+			log.Warn("Multishot consensus decision reached", "txHash decided", new(big.Int).SetBytes(vLog.Data))
 
 			decided, _ := pool.consensus.ParseDecided(vLog)
 			unconfirmed := pool.unconfirmed[common.Address(decided.TxOrigin)][uint(decided.TxNonce.Uint64())][common.BigToHash(decided.Decision)]
@@ -764,7 +765,9 @@ func (pool *TxPool) validateAck(tx *types.Transaction, local bool) error {
 	}
 	// Ensure the transaction adheres to nonce ordering
 	// Cascadeth: Locally we can only validate the immediate next transaction
+	// TODO: Of course these data structure won't hold up longterm
 	if local && pool.expectedAckNonce[from] != tx.Nonce() {
+		log.Debug("ErrUnextpectedNonce", "expected", pool.expectedAckNonce[from], "actual", tx.Nonce())
 		return ErrUnexpectedNonce
 	}
 	// Ensure the transaction adheres to nonce ordering
@@ -911,7 +914,7 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 
 	// If the transaction is not known, add it to queue, to then ack ourself.
 	// FIXME If not enough funds / too far into future, still keep around
-	if pool.all.Get(hash) == nil && pool.validateAck(tx, true) == nil {
+	if pool.all.Get(hash) == nil && pool.validateAck(tx, true) == nil { // FIXME check whether condition correct
 		log.Warn("Cascadeth: Couldn't validate ack. Potential new (or old) transaction discovered in block.", "hash", hash)
 		pool.add(tx, false) // Tx that we learn from blocks aren't local
 	}
@@ -1000,22 +1003,23 @@ func (pool *TxPool) addAck(tx *types.Transaction, ackOrigin common.Address, isLo
 	if unconfirmed.potentialTx == nil {
 		unconfirmed.potentialTx = tx
 	}
-	stakeReceived.Add(stakeReceived, unconfirmed.ackWeight)
+	stakeReceived.Add(stakeReceived, ackValue)
 	pool.voted[txOrigin][nonce][ackOrigin] = true
 
 	// If 2/3 of stake has acked, then tx is confirmed.
 	if unconfirmed.ackWeight.Cmp(pool.config.QuorumStake) > 0 {
 
 		// Empty three main datastructures
-		pool.cleanTx(txOrigin, nonce)
+		// FIXME definetly don't clean here, we have not yet applied it to state.
+		// pool.cleanTx(txOrigin, nonce)
 
 		return true, nil
 	}
 
 	// If 4/5 of stake has acked and tx is not yet confirmed, we launch a posteriori consensus to avoid potential deadlocks.
-	if pool.config.PerformAposterioiriConsensus && stakeReceived.Cmp(pool.config.APosterioriStake) > 0 {
+	if pool.config.PerformAposterioiriConsensus && (stakeReceived.Cmp(pool.config.APosterioriStake) > 0) {
 
-		log.Debug("Submit ack to multishot contract")
+		log.Warn("Submit ack to multishot contract", "opts From", gethbind.TransactOpts{}.From)
 
 		_, err = pool.consensus.Propose(&gethbind.TransactOpts{}, gethcommon.Address(txOrigin), big.NewInt(int64(nonce)), hash.Big())
 		if err != nil {
@@ -1570,11 +1574,11 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 
 	// Cascadeth: Take the first state as stake state (for now)
 	if pool.stakeState == nil {
-		pool.stakeState = statedb
+		pool.stakeState = statedb.Copy()
 		//totalStake := statedb.AccountHashes
 	}
 
-	pool.currentState = statedb
+	pool.currentState = statedb.Copy()
 	pool.pendingNonces = newTxNoncer(pool.currentState)
 	pool.currentMaxGas = newHead.GasLimit
 
@@ -1603,7 +1607,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			continue // Just in case someone calls with a non existing account
 		}
 		// Drop all transactions that are deemed too old (low nonce)
-		// FIXME use expectedAckNonce for dropping
+		// Cascadeth: use expectedAckNonce for dropping
 		log.Debug("Promote executables.", "currentState nonce", pool.currentState.GetNonce(addr), "ackedNonce", pool.expectedAckNonce[addr])
 
 		forwards := list.Forward(pool.expectedAckNonce[addr])
