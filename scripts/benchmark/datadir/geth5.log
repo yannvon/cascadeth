@@ -1,0 +1,13 @@
+WARN [08-28|13:09:38.305] Disable transaction unindexing for archive node 
+WARN [08-28|13:09:38.558] Upgrade blockchain database version      from=<nil> to=8
+WARN [08-28|13:09:39.888] Error reading unclean shutdown markers   error="leveldb: not found"
+WARN [08-28|13:10:12.008] pivatekey                                authfrom=0xA90847c6a14603aAab8b3B62dCB847593f0Cbb85
+WARN [08-28|13:10:15.348] Cascadeth: applyTransaction (state processing) ackAuthor=0xD5D6D50C2d8F8A0551628037aA469F17ca758B5B tx hash="21bc1e…bebf3e" tx nonce=0
+WARN [08-28|13:10:15.349] pivatekey                                authfrom=0xA90847c6a14603aAab8b3B62dCB847593f0Cbb85
+WARN [08-28|13:10:15.446] Cascadeth: applyTransaction (state processing) ackAuthor=0xa6E1809E41b94cacEEB44f475E892E394a943691 tx hash="21bc1e…bebf3e" tx nonce=0
+WARN [08-28|13:10:15.447] pivatekey                                authfrom=0xA90847c6a14603aAab8b3B62dCB847593f0Cbb85
+WARN [08-28|13:10:15.448] Cascadeth: applyTransaction (state processing) ackAuthor=0x0880213c848114C92Bbb36e14916cEdB43e70669 tx hash="21bc1e…bebf3e" tx nonce=0
+WARN [08-28|13:10:15.448] pivatekey                                authfrom=0xA90847c6a14603aAab8b3B62dCB847593f0Cbb85
+WARN [08-28|13:10:15.678] Cascadeth: applyTransaction (state processing) ackAuthor=0x1061CEB0c883b5481150846C0D57519a46A28eaF tx hash="21bc1e…bebf3e" tx nonce=0
+WARN [08-28|13:10:15.679] pivatekey                                authfrom=0xA90847c6a14603aAab8b3B62dCB847593f0Cbb85
+WARN [08-28|13:10:15.679] Applying confirmed transaction           nonce=0 sender=0x1061CEB0c883b5481150846C0D57519a46A28eaF hash="21bc1e…bebf3e"
