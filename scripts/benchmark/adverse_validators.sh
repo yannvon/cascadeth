@@ -19,6 +19,8 @@ ipc_str_1="/local/home/yvonlanthen/Documents/cascadeth/scripts/benchmark/datadir
 ipc_str_2="/geth"
 ipc_str_3=".ipc"
 
+genesis_str=scripts/benchmark/
+genesis_name=work_genesis.json
 
 geth_path=/local/home/yvonlanthen/go/bin/geth
 #path=/home/yann/go/bin/geth
@@ -59,16 +61,16 @@ then
 
 
   # Init blockchain from genesis
-  $geth_path init --datadir scripts/benchmark/datadir/node0 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node1 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node2 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node3 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node4 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node5 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node6 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node7 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node8 scripts/benchmark/6genesis.json
-  $geth_path init --datadir scripts/benchmark/datadir/node9 scripts/benchmark/6genesis.json
+  $geth_path init --datadir scripts/benchmark/datadir/node0 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node1 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node2 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node3 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node4 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node5 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node6 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node7 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node8 $genesis_str$genesis_name
+  $geth_path init --datadir scripts/benchmark/datadir/node9 $genesis_str$genesis_name
 
 fi
 

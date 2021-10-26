@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Execute from cascadeth directory
-cd ~/Documents/cascadeth/data/benchmark/datadir
+cd ~/Documents/cascadeth/scripts/benchmark/datadir
 
 after=": { \"balance\": \"10000000000000000000000000\" },"
 
