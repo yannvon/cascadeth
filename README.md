@@ -1,5 +1,8 @@
-# Consensus on Demand 
-Fork of the Official Golang implementation of the Ethereum protocol and inspired by the Cascade protocol.
+# Cascadeth
+Fork of the Official Golang implementation of the Ethereum protocol.
+This protocol implements a simple broadcast-based digital currency (Inspired by Cascade and Astro protocols), while offering the same interface as geth.
+
+The functionality of the currency is improved by performing consensus on demand.
 
 ## Quick start
 
